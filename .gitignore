@@ -53,5 +53,6 @@ CONTEXT-*.md
 # School Assignment Documents
 docx/*任务书*.docx
 
-
-
+# Specifications (Ignored)
+docx/studyrecord/*规范*.docx
+docx/studyrecord/日志输出规范.docx
