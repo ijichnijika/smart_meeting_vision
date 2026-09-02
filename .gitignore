@@ -59,6 +59,7 @@ runs/
 *.mp4
 *.avi
 *.mov
+docx/studyrecord/**/dataset/
 
 # Documentation & Internal Context
 docs/
