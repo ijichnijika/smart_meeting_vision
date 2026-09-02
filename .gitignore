@@ -45,14 +45,28 @@ ENV/
 ~$*.xlsx
 ~$*.pptx
 
+# Model Weights & Checkpoints (Large Files)
+*.pt
+*.pth
+*.onnx
+*.engine
+*.bin
+
+# Datasets, Video Media & Runtime Storage
+data/
+datasets/
+runs/
+*.mp4
+*.avi
+*.mov
+
 # Documentation & Internal Context
 docs/
 CONTEXT.md
 CONTEXT-*.md
 
-# School Assignment Documents
+# Internal School Docs & Specifications (Ignored)
 docx/*任务书*.docx
-
-# Specifications (Ignored)
 docx/studyrecord/*规范*.docx
 docx/studyrecord/日志输出规范.docx
+
