@@ -1,0 +1,16 @@
+# Python & macOS
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+
+# Training artifacts & weights
+runs/
+*.pt
+*.onnx
+
+# Redundant datasets & splits
+raw_dataset/
+reference_split/
+dataset_split/
+reference_tools/
