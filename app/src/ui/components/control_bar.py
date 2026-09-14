@@ -4,7 +4,7 @@
 
 import os
 from pathlib import Path
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -25,28 +25,32 @@ class ControlBar(QFrame):
     restart_clicked = Signal()
     source_changed = Signal(object)
     snapshot_requested = Signal()
+    record_toggled = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.is_playing = True
+        self.is_recording = False
         self.setObjectName("controlBar")
         self._setup_ui()
 
     def _setup_ui(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(10)
 
         self.btn_play = QPushButton("暂停")
         self.btn_play.setObjectName("btnPrimary")
         self.btn_play.setProperty("class", "btn-primary")
-        self.btn_play.setFixedWidth(78)
+        self.btn_play.setFixedWidth(82)
+        self.btn_play.setCursor(Qt.PointingHandCursor)
         self.btn_play.clicked.connect(self._toggle_play)
         layout.addWidget(self.btn_play)
 
         self.btn_restart = QPushButton("重播")
         self.btn_restart.setProperty("class", "btn-secondary")
-        self.btn_restart.setFixedWidth(64)
+        self.btn_restart.setFixedWidth(68)
+        self.btn_restart.setCursor(Qt.PointingHandCursor)
         self.btn_restart.clicked.connect(lambda: self.restart_clicked.emit())
         layout.addWidget(self.btn_restart)
 
@@ -61,14 +65,22 @@ class ControlBar(QFrame):
 
         self.combo_source = QComboBox()
         self.combo_source.setMinimumWidth(260)
+        self.combo_source.setCursor(Qt.PointingHandCursor)
         self._populate_video_sources()
         self.combo_source.currentIndexChanged.connect(self._on_source_index_changed)
         layout.addWidget(self.combo_source)
 
         layout.addStretch()
 
+        self.btn_record = QPushButton("开始录制")
+        self.btn_record.setProperty("class", "btn-secondary")
+        self.btn_record.setCursor(Qt.PointingHandCursor)
+        self.btn_record.clicked.connect(self._toggle_record)
+        layout.addWidget(self.btn_record)
+
         self.btn_snapshot = QPushButton("画面抓拍")
         self.btn_snapshot.setProperty("class", "btn-secondary")
+        self.btn_snapshot.setCursor(Qt.PointingHandCursor)
         self.btn_snapshot.clicked.connect(lambda: self.snapshot_requested.emit())
         layout.addWidget(self.btn_snapshot)
 
@@ -99,6 +111,23 @@ class ControlBar(QFrame):
         """更新播放按钮状态显示。"""
         self.is_playing = is_playing
         self.btn_play.setText("暂停" if is_playing else "播放")
+
+    def _toggle_record(self):
+        """切换视频录制状态。"""
+        self.set_record_state(not self.is_recording)
+        self.record_toggled.emit(self.is_recording)
+
+    def set_record_state(self, is_recording: bool):
+        """更新录制按钮外观与状态。"""
+        self.is_recording = is_recording
+        if is_recording:
+            self.btn_record.setText("停止录制")
+            self.btn_record.setProperty("class", "btn-danger")
+        else:
+            self.btn_record.setText("开始录制")
+            self.btn_record.setProperty("class", "btn-secondary")
+        self.btn_record.style().unpolish(self.btn_record)
+        self.btn_record.style().polish(self.btn_record)
 
     def _on_source_index_changed(self, index: int):
         """响应视频源下拉选择变更。"""

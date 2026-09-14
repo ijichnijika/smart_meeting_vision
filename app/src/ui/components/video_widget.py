@@ -69,42 +69,49 @@ class VideoWidget(QWidget):
         painter.drawImage(self._render_rect, self.current_frame)
 
         for det in self.detections:
-            self._draw_detection_item(painter, det, draw_x, draw_y, scale)
+            if det.track_id is not None and det.track_id == self.selected_track_id:
+                self._draw_detection_item(painter, det, draw_x, draw_y, scale)
 
         self._draw_hud(painter)
 
     def _draw_standby_screen(self, painter: QPainter, rect: QRectF):
-        """绘制待机十字光标与等待提示。"""
+        """绘制待机十字准星与平滑状态指引。"""
         cx, cy = rect.center().x(), rect.center().y()
 
-        cross_pen = QPen(QColor(ThemeColors.CANVAS_GRID), 1.5, Qt.SolidLine)
+        cross_pen = QPen(QColor(ThemeColors.CANVAS_GRID), 1.2, Qt.SolidLine)
         painter.setPen(cross_pen)
-        painter.drawLine(QPointF(cx - 30, cy), QPointF(cx + 30, cy))
-        painter.drawLine(QPointF(cx, cy - 30), QPointF(cx, cy + 30))
+        painter.drawLine(QPointF(cx - 36, cy), QPointF(cx + 36, cy))
+        painter.drawLine(QPointF(cx, cy - 36), QPointF(cx, cy + 36))
 
         painter.setBrush(Qt.NoBrush)
-        painter.drawEllipse(QPointF(cx, cy), 18, 18)
+        painter.setPen(QPen(QColor(ThemeColors.CANVAS_GRID), 1.2))
+        painter.drawEllipse(QPointF(cx, cy), 20, 20)
+        painter.drawEllipse(QPointF(cx, cy), 32, 32)
 
         painter.setPen(QColor(ThemeColors.TEXT_MUTED))
-        font = QFont("PingFang SC", 12)
+        font = QFont("PingFang SC", 12, QFont.Medium)
         painter.setFont(font)
-        text_rect = QRectF(rect.x(), cy + 32, rect.width(), 24)
+        text_rect = QRectF(rect.x(), cy + 44, rect.width(), 24)
         painter.drawText(text_rect, Qt.AlignCenter, "等待视频信号接入...")
 
     def _resolve_det_style(self, det: DetectionBox, is_selected: bool) -> Tuple[QColor, QColor, QColor, str]:
         """计算检测框边框颜色、背景填充色与显示文本。"""
         if det.is_distracted:
             stroke = QColor(ThemeColors.BOX_DISTRACT)
-            fill = QColor(220, 38, 38, 28)
-            tag_bg = QColor(220, 38, 38, 230)
+            fill = QColor(220, 38, 38, 30)
+            tag_bg = QColor(220, 38, 38, 235)
         elif is_selected:
             stroke = QColor(ThemeColors.BOX_SELECTED)
-            fill = QColor(139, 92, 246, 32)
-            tag_bg = QColor(139, 92, 246, 230)
+            fill = QColor(139, 92, 246, 35)
+            tag_bg = QColor(139, 92, 246, 235)
+        elif det.class_id == 67:
+            stroke = QColor(ThemeColors.WARNING)
+            fill = QColor(217, 119, 6, 30)
+            tag_bg = QColor(217, 119, 6, 235)
         else:
             stroke = QColor(ThemeColors.BOX_PERSON)
-            fill = QColor(59, 130, 246, 18)
-            tag_bg = QColor(37, 99, 235, 220)
+            fill = QColor(59, 130, 246, 20)
+            tag_bg = QColor(37, 99, 235, 225)
 
         track_tag = f"#{det.track_id} " if det.track_id is not None else ""
         name_tag = f"{det.bound_attendee_name} · " if det.bound_attendee_name else ""
@@ -177,21 +184,33 @@ class VideoWidget(QWidget):
         painter.drawText(tag_rect, Qt.AlignCenter, text)
 
     def _draw_hud(self, painter: QPainter):
-        """在画面右上角绘制实时帧率与目标数指示。"""
+        """在画面绘制状态指示信息。"""
+        live_rect = QRectF(12, 12, 142, 26)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(15, 23, 42, 210))
+        painter.drawRoundedRect(live_rect, 13, 13)
+
+        painter.setBrush(QBrush(QColor("#EF4444")))
+        painter.drawEllipse(QPointF(24, 25), 4.0, 4.0)
+
+        painter.setPen(QColor("#F1F5F9"))
+        painter.setFont(QFont("PingFang SC", 9, QFont.DemiBold))
+        painter.drawText(QRectF(34, 12, 112, 26), Qt.AlignVCenter, "实时监控 · 1080P")
+
         hud_text = f"FPS {self.current_fps:.1f}  ·  目标 {len(self.detections)}"
-        hud_font = QFont("SF Pro Text", 10, QFont.Medium)
+        hud_font = QFont("SF Pro Text", 9, QFont.Medium)
         painter.setFont(hud_font)
         fm = painter.fontMetrics()
-        hud_w = fm.horizontalAdvance(hud_text) + 18
-        hud_h = fm.height() + 8
+        hud_w = fm.horizontalAdvance(hud_text) + 20
+        hud_h = 26
 
         rx = self.width() - hud_w - 12
         ry = 12
         hud_rect = QRectF(rx, ry, hud_w, hud_h)
 
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(15, 23, 42, 200))
-        painter.drawRoundedRect(hud_rect, 5, 5)
+        painter.setBrush(QColor(15, 23, 42, 210))
+        painter.drawRoundedRect(hud_rect, 13, 13)
 
         painter.setPen(QColor("#F1F5F9"))
         painter.drawText(hud_rect, Qt.AlignCenter, hud_text)

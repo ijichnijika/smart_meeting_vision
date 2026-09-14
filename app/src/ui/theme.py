@@ -20,11 +20,12 @@ class ThemeColors:
     TEXT_MUTED = "#64748B"
     TEXT_PLACEHOLDER = "#94A3B8"
 
-    PRIMARY = "#2563EB"
+    PRIMARY = "#1E40AF"
     PRIMARY_HOVER = "#1D4ED8"
-    PRIMARY_ACTIVE = "#1E40AF"
+    PRIMARY_ACTIVE = "#1E3A8A"
     PRIMARY_LIGHT = "#EFF6FF"
     PRIMARY_BORDER = "#BFDBFE"
+    PRIMARY_ACCENT = "#2563EB"
 
     SUCCESS = "#059669"
     SUCCESS_BG = "#ECFDF5"
@@ -42,7 +43,7 @@ class ThemeColors:
     DANGER_TEXT = "#991B1B"
 
     CANVAS_BG = "#0B0F19"
-    CANVAS_GRID = "#182032"
+    CANVAS_GRID = "#1E293B"
     BOX_PERSON = "#3B82F6"
     BOX_DISTRACT = "#DC2626"
     BOX_SELECTED = "#8B5CF6"
@@ -58,7 +59,6 @@ class ThemeColors:
         ("#EFF6FF", "#1D4ED8"),
         ("#FFF1F2", "#BE123C"),
     ]
-
 
 
 PURE_WHITE_STYLESHEET = f"""
@@ -116,56 +116,56 @@ QLabel.metric-value {{
 QPushButton#btnPrimary,
 QPushButton[class="btn-primary"],
 QPushButton.btn-primary {{
-    background-color: #2563EB;
+    background-color: {ThemeColors.PRIMARY_ACCENT};
     color: #FFFFFF;
     font-weight: 600;
-    font-size: 13px;
-    border: 1px solid #2563EB;
+    font-size: 12px;
+    border: 1px solid {ThemeColors.PRIMARY_ACCENT};
     border-radius: 6px;
     padding: 6px 14px;
 }}
 QPushButton#btnPrimary:hover,
 QPushButton[class="btn-primary"]:hover,
 QPushButton.btn-primary:hover {{
-    background-color: #1D4ED8;
-    border-color: #1D4ED8;
+    background-color: {ThemeColors.PRIMARY_HOVER};
+    border-color: {ThemeColors.PRIMARY_HOVER};
 }}
 QPushButton#btnPrimary:pressed,
 QPushButton[class="btn-primary"]:pressed,
 QPushButton.btn-primary:pressed {{
-    background-color: #1E40AF;
-    border-color: #1E40AF;
+    background-color: {ThemeColors.PRIMARY_ACTIVE};
+    border-color: {ThemeColors.PRIMARY_ACTIVE};
 }}
 
 /* 次级操作按钮 */
 QPushButton[class="btn-secondary"],
 QPushButton.btn-secondary {{
     background-color: #FFFFFF;
-    color: #334155;
+    color: {ThemeColors.TEXT_SECONDARY};
     font-weight: 500;
     font-size: 12px;
-    border: 1px solid #E2E8F0;
+    border: 1px solid {ThemeColors.BORDER_LIGHT};
     border-radius: 6px;
     padding: 6px 12px;
 }}
 QPushButton[class="btn-secondary"]:hover,
 QPushButton.btn-secondary:hover {{
-    background-color: #F8FAFC;
-    border-color: #CBD5E1;
-    color: #0F172A;
+    background-color: {ThemeColors.SURFACE_HOVER};
+    border-color: {ThemeColors.BORDER_MUTED};
+    color: {ThemeColors.TEXT_PRIMARY};
 }}
 QPushButton[class="btn-secondary"]:pressed,
 QPushButton.btn-secondary:pressed {{
-    background-color: #E2E8F0;
+    background-color: {ThemeColors.SURFACE_ACTIVE};
 }}
 
 /* 危险/动作按钮 */
 QPushButton[class="btn-danger"],
 QPushButton.btn-danger {{
-    background-color: #FEF2F2;
-    color: #DC2626;
+    background-color: {ThemeColors.DANGER_BG};
+    color: {ThemeColors.DANGER};
     font-weight: 500;
-    border: 1px solid #FECACA;
+    border: 1px solid {ThemeColors.DANGER_BORDER};
     border-radius: 6px;
     padding: 6px 12px;
 }}
@@ -174,9 +174,29 @@ QPushButton.btn-danger:hover {{
     background-color: #FEE2E2;
 }}
 
+/* 过滤筛选药丸按钮 */
+QPushButton.filter-chip {{
+    background-color: {ThemeColors.PANEL_MUTED};
+    color: {ThemeColors.TEXT_MUTED};
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    padding: 4px 10px;
+}}
+QPushButton.filter-chip:hover {{
+    background-color: {ThemeColors.SURFACE_ACTIVE};
+    color: {ThemeColors.TEXT_PRIMARY};
+}}
+QPushButton.filter-chip:checked {{
+    background-color: {ThemeColors.PRIMARY_ACCENT};
+    color: #FFFFFF;
+    font-weight: 600;
+}}
+
 /* 输入框 */
 QLineEdit {{
-    background-color: {ThemeColors.PANEL_BG};
+    background-color: {ThemeColors.PANEL_MUTED};
     color: {ThemeColors.TEXT_PRIMARY};
     border: 1px solid {ThemeColors.BORDER_LIGHT};
     border-radius: 6px;
@@ -187,6 +207,7 @@ QLineEdit {{
 }}
 QLineEdit:hover {{
     border-color: {ThemeColors.BORDER_MUTED};
+    background-color: #FFFFFF;
 }}
 QLineEdit:focus {{
     border: 1px solid {ThemeColors.BORDER_FOCUS};
@@ -230,13 +251,13 @@ QScrollArea {{
 QScrollBar:vertical {{
     border: none;
     background: transparent;
-    width: 5px;
+    width: 6px;
     margin: 0px;
 }}
 QScrollBar::handle:vertical {{
     background: {ThemeColors.BORDER_MUTED};
-    border-radius: 2.5px;
-    min-height: 20px;
+    border-radius: 3px;
+    min-height: 24px;
 }}
 QScrollBar::handle:vertical:hover {{
     background: {ThemeColors.TEXT_MUTED};
@@ -265,12 +286,14 @@ QToolTip {{
 /* 面板容器统一规则 */
 AttendeePanel, QFrame#attendeePanel {{
     background-color: {ThemeColors.PANEL_BG};
-    border-right: 1px solid {ThemeColors.BORDER_LIGHT};
+    border: 1px solid {ThemeColors.BORDER_LIGHT};
+    border-radius: 12px;
 }}
 
 StatsPanel, QFrame#statsPanel {{
     background-color: {ThemeColors.PANEL_BG};
-    border-left: 1px solid {ThemeColors.BORDER_LIGHT};
+    border: 1px solid {ThemeColors.BORDER_LIGHT};
+    border-radius: 12px;
 }}
 
 ControlBar, QFrame#controlBar {{
@@ -279,3 +302,4 @@ ControlBar, QFrame#controlBar {{
     border-radius: 10px;
 }}
 """
+

@@ -25,6 +25,45 @@ def test_attendee_panel_populate_and_filter():
     panel.search_input.setText("")
     assert panel.get_visible_count() == len(attendees)
 
+    # 测试状态筛选药丸 (在席 / 离席 / 未关联)
+    panel._on_filter_changed("PRESENT")
+    assert panel.get_visible_count() == sum(1 for a in attendees if a.status == "present")
+
+    panel._on_filter_changed("ABSENT")
+    assert panel.get_visible_count() == sum(1 for a in attendees if a.status != "present")
+
+    panel._on_filter_changed("UNBOUND")
+    assert panel.get_visible_count() == sum(1 for a in attendees if not a.track_id)
+
+    panel._on_filter_changed("ALL")
+    assert panel.get_visible_count() == len(attendees)
+
+
+def test_no_emoji_in_ui():
+    """验证界面核心组件文本均无 Emoji 字符"""
+    import re
+    from app.src.ui.components.attendee_panel import AttendeePanel
+    from app.src.ui.components.control_bar import ControlBar
+    from app.src.ui.components.stats_panel import StatsPanel
+
+    # 常见 Emoji 字符 Unicode 范围
+    emoji_pattern = re.compile(
+        r"[\U00010000-\U0010ffff\u2600-\u27bf\u2300-\u23ff\u2b50]",
+        flags=re.UNICODE
+    )
+
+    bar = ControlBar()
+    assert not emoji_pattern.search(bar.btn_play.text())
+    assert not emoji_pattern.search(bar.btn_restart.text())
+    assert not emoji_pattern.search(bar.btn_snapshot.text())
+
+    att_panel = AttendeePanel()
+    assert not emoji_pattern.search(att_panel.search_input.placeholderText())
+
+    stats_panel = StatsPanel()
+    assert not emoji_pattern.search(stats_panel.lbl_empty_feed.text())
+    assert not emoji_pattern.search(stats_panel.btn_export.text())
+
 
 def test_stats_panel_metrics_and_alerts(qapp):
     """测试 StatsPanel 数据指标更新与告警动态流卡片新增"""
@@ -53,3 +92,25 @@ def test_stats_panel_metrics_and_alerts(qapp):
     )
     panel.add_alert(alert)
     assert panel.get_alert_count() == 1
+
+
+def test_stats_panel_category_counts(qapp):
+    """测试 StatsPanel 类别细分标签渲染与数据更新"""
+    from app.src.ui.components.stats_panel import StatsPanel
+
+    panel = StatsPanel()
+    assert "暂无数据" in panel.lbl_category_detail.text()
+
+    panel.update_category_counts({"person": 5, "cell phone": 1})
+    assert "person: 5" in panel.lbl_category_detail.text()
+    assert "cell phone: 1" in panel.lbl_category_detail.text()
+
+    stats = AttendanceStats(
+        total_expected=12,
+        current_present=5,
+        current_absent=7,
+        category_counts={"person": 6, "sleep": 1}
+    )
+    panel.update_stats(stats)
+    assert "person: 6" in panel.lbl_category_detail.text()
+    assert "sleep: 1" in panel.lbl_category_detail.text()

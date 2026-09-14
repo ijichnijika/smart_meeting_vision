@@ -1,4 +1,4 @@
-from app.src.model.enums import BehaviorType
+from app.src.model.enums import AttendanceStatus, BehaviorType
 from app.src.model.models import (
     Attendee,
     MeetingInfo,
@@ -8,6 +8,7 @@ from app.src.model.models import (
 )
 
 __all__ = [
+    "AttendanceStatus",
     "Attendee",
     "MeetingInfo",
     "DetectionBox",

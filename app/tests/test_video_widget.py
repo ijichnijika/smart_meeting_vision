@@ -42,3 +42,25 @@ def test_control_bar_signals(qapp):
     bar.btn_play.click()
     assert len(play_states) == 1
     assert play_states[0] is False  # 默认由 True -> False (暂停)
+
+
+def test_control_bar_recording_toggle(qapp):
+    """测试 ControlBar 录制按钮点击切换状态与信号发射"""
+    from app.src.ui.components.control_bar import ControlBar
+
+    bar = ControlBar()
+    assert bar.is_recording is False
+    assert bar.btn_record.text() == "开始录制"
+
+    record_states = []
+    bar.record_toggled.connect(lambda s: record_states.append(s))
+
+    bar.btn_record.click()
+    assert bar.is_recording is True
+    assert bar.btn_record.text() == "停止录制"
+    assert record_states == [True]
+
+    bar.btn_record.click()
+    assert bar.is_recording is False
+    assert bar.btn_record.text() == "开始录制"
+    assert record_states == [True, False]

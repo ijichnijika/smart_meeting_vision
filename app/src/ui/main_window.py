@@ -3,21 +3,17 @@
 """
 
 from datetime import datetime
-from PySide6.QtCore import QPointF, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+import numpy as np
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QInputDialog,
-    QLabel,
     QMainWindow,
     QMessageBox,
     QVBoxLayout,
     QWidget,
 )
 
-from app.src.common.logger import get_logger
-from app.src.utils.calculate_utils import current_time_str
 from app.config import (
     APP_NAME,
     APP_SUBTITLE,
@@ -29,103 +25,22 @@ from app.config import (
     WINDOW_MIN_HEIGHT,
     WINDOW_MIN_WIDTH,
 )
-from app.src.model import AttendanceStats, Attendee, DistractionAlert
+from app.src.common.logger import get_logger
+from app.src.model import AttendanceStats, AttendanceStatus, Attendee, DistractionAlert
+from app.src.service import AttendanceReportService, VisionService
 from app.src.ui.components.attendee_panel import AttendeePanel
 from app.src.ui.components.control_bar import ControlBar
 from app.src.ui.components.stats_panel import StatsPanel
+from app.src.ui.components.top_nav import TopNavWidget
 from app.src.ui.components.video_widget import VideoWidget
-from app.src.ui.theme import PURE_WHITE_STYLESHEET, ThemeColors
-from app.src.service import VisionService
+from app.src.ui.theme import PURE_WHITE_STYLESHEET
+from app.src.utils.calculate_utils import current_time_str
 
 logger = get_logger("main_window")
 
 
-class BrandLogoWidget(QWidget):
-    """系统几何标识微标。"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(28, 28)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(QColor(ThemeColors.PRIMARY)))
-        painter.drawRoundedRect(self.rect(), 7, 7)
-
-        cx, cy = self.rect().center().x(), self.rect().center().y()
-        lens_pen = QPen(QColor("#FFFFFF"), 1.8)
-        painter.setPen(lens_pen)
-        painter.setBrush(Qt.NoBrush)
-        painter.drawEllipse(QPointF(cx, cy), 6.5, 6.5)
-
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(QColor("#FFFFFF")))
-        painter.drawEllipse(QPointF(cx, cy), 2.2, 2.2)
-
-
-class TopNavWidget(QFrame):
-    """顶部导航栏组件。"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("topNav")
-        self.setFixedHeight(54)
-        self._setup_ui()
-
-    def _setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 0, 16, 0)
-        layout.setSpacing(14)
-
-        layout.addWidget(BrandLogoWidget())
-
-        title_col = QVBoxLayout()
-        title_col.setSpacing(1)
-        title_col.setAlignment(Qt.AlignVCenter)
-
-        lbl_title = QLabel(APP_NAME)
-        lbl_title.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {ThemeColors.TEXT_PRIMARY};")
-        title_col.addWidget(lbl_title)
-
-        lbl_sub = QLabel(APP_SUBTITLE)
-        lbl_sub.setStyleSheet(f"font-size: 10px; color: {ThemeColors.TEXT_MUTED};")
-        title_col.addWidget(lbl_sub)
-        layout.addLayout(title_col)
-
-        layout.addStretch()
-
-        self.pill_status = QLabel("● 推理管线运行中 (YOLOv8 + ByteTrack)")
-        self.pill_status.setStyleSheet(f"""
-            background-color: {ThemeColors.SUCCESS_BG};
-            color: {ThemeColors.SUCCESS_TEXT};
-            border: 1px solid {ThemeColors.SUCCESS_BORDER};
-            border-radius: 12px;
-            padding: 3px 12px;
-            font-size: 11px;
-            font-weight: 600;
-        """)
-        layout.addWidget(self.pill_status)
-
-        layout.addStretch()
-
-        self.lbl_clock = QLabel(current_time_str("%Y-%m-%d  %H:%M:%S"))
-        self.lbl_clock.setStyleSheet(f"""
-            color: {ThemeColors.TEXT_SECONDARY};
-            font-family: 'SF Pro Text', monospace;
-            font-size: 12px;
-            font-weight: 500;
-        """)
-        layout.addWidget(self.lbl_clock)
-
-    def update_clock(self, text: str):
-        self.lbl_clock.setText(text)
-
-
 class MainWindow(QMainWindow):
-    """会议出勤视觉分析系统主窗口。"""
+    """会议出勤视觉分析系统主窗口控制器。"""
 
     def __init__(self, enable_yolo: bool = True, auto_start: bool = True, parent=None):
         super().__init__(parent)
@@ -134,9 +49,9 @@ class MainWindow(QMainWindow):
         self.attendees = [Attendee(**data) for data in INITIAL_ATTENDEES]
         self._current_stats = AttendanceStats(
             total_expected=len(self.attendees),
-            current_present=sum(1 for a in self.attendees if a.status == "present"),
-            current_absent=sum(1 for a in self.attendees if a.status != "present"),
-            attendance_rate=round(sum(1 for a in self.attendees if a.status == "present") / len(self.attendees) * 100, 1)
+            current_present=sum(1 for a in self.attendees if a.status == AttendanceStatus.PRESENT.value),
+            current_absent=sum(1 for a in self.attendees if a.status != AttendanceStatus.PRESENT.value),
+            attendance_rate=round(sum(1 for a in self.attendees if a.status == AttendanceStatus.PRESENT.value) / len(self.attendees) * 100, 1),
         )
 
         self._setup_window_properties()
@@ -195,9 +110,10 @@ class MainWindow(QMainWindow):
         self.vision_service = VisionService(
             video_source=source,
             enable_yolo=self.enable_yolo,
-            parent=self
+            parent=self,
         )
         self.vision_service.frame_ready.connect(self._on_frame_ready)
+        self.vision_service.done_signal.connect(self._on_done_signal)
         self.vision_service.stats_updated.connect(self._on_stats_updated)
         self.vision_service.alert_triggered.connect(self._on_alert_triggered)
         if self.auto_start:
@@ -209,6 +125,7 @@ class MainWindow(QMainWindow):
         self.control_bar.restart_clicked.connect(self._on_restart_clicked)
         self.control_bar.source_changed.connect(self._on_source_changed)
         self.control_bar.snapshot_requested.connect(self._on_snapshot_requested)
+        self.control_bar.record_toggled.connect(self._on_record_toggled)
 
         self.video_widget.tracking_id_selected.connect(self._on_tracking_id_selected)
         self.attendee_panel.bind_requested.connect(self._on_bind_requested)
@@ -238,8 +155,18 @@ class MainWindow(QMainWindow):
         self._current_stats = stats
         self.stats_panel.update_stats(stats)
 
+    def _on_done_signal(self, frame: np.ndarray, counts: dict):
+        self.stats_panel.update_category_counts(counts)
+
     def _on_alert_triggered(self, alert: DistractionAlert):
         self.stats_panel.add_alert(alert)
+        if alert.track_id:
+            tid_clean = alert.track_id.lstrip("#")
+            for a in self.attendees:
+                if a.track_id and (a.track_id == alert.track_id or a.track_id.lstrip("#") == tid_clean):
+                    a.distraction_count += 1
+                    self.attendee_panel.set_attendees(self.attendees)
+                    break
 
     def _on_play_toggled(self, is_playing: bool):
         if is_playing:
@@ -255,16 +182,28 @@ class MainWindow(QMainWindow):
         self.vision_service.change_source(new_source)
         self.control_bar.set_play_state(True)
 
+    def _on_record_toggled(self, is_recording: bool):
+        """响应录制按钮状态变更。"""
+        if is_recording:
+            path = self.vision_service.start_recording()
+            self.statusBar().showMessage(f"已启动录制: {path}", 4000)
+        else:
+            path = self.vision_service.stop_recording()
+            if path:
+                QMessageBox.information(self, "录制完成", f"带标注视频已成功保存至:\n{path}")
+
     def _on_snapshot_requested(self):
         """保存当前视频帧抓拍快照。"""
-        if not self.video_widget.current_frame or self.video_widget.current_frame.isNull():
-            return
+        snap_path = self.vision_service.take_snapshot()
+        if not snap_path and self.video_widget.current_frame and not self.video_widget.current_frame.isNull():
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"manual_snap_{ts}.jpg"
+            save_path = SNAPSHOTS_DIR / filename
+            self.video_widget.current_frame.save(str(save_path), "JPG")
+            snap_path = str(save_path)
 
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"manual_snap_{ts}.jpg"
-        save_path = SNAPSHOTS_DIR / filename
-        self.video_widget.current_frame.save(str(save_path), "JPG")
-        QMessageBox.information(self, "抓拍完成", f"当前画面已保存至:\n{save_path}")
+        if snap_path:
+            QMessageBox.information(self, "抓拍完成", f"当前带算法标注画面已保存至:\n{snap_path}")
 
     def _on_tracking_id_selected(self, track_id: int):
         logger.info(f"画面选中 TrackingID: #{track_id}")
@@ -278,7 +217,7 @@ class MainWindow(QMainWindow):
         text, ok = QInputDialog.getText(
             self, "挂载目标标识",
             f"请输入要关联至【{att.name} ({att.department})】的 TrackingID:\n(例如: #1, #2)",
-            text=att.track_id or "#1"
+            text=att.track_id or "#1",
         )
         if not ok or not text.strip():
             return
@@ -293,32 +232,10 @@ class MainWindow(QMainWindow):
     def _on_export_report(self):
         """导出考勤分析报表至 Excel 文件。"""
         try:
-            import pandas as pd
-            from app.config import REPORTS_DIR
-
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_name = f"考勤出勤分析报表_{ts}.xlsx"
-            export_path = REPORTS_DIR / file_name
-
-            records = [
-                {
-                    "工号": a.id,
-                    "姓名": a.name,
-                    "所属部门": a.department,
-                    "职位": a.role,
-                    "当前状态": "在席" if a.status == "present" else "离席",
-                    "关联追踪编号": a.track_id or "未关联",
-                    "分心次数": a.distraction_count,
-                    "出勤核定": "准时参会" if a.status == "present" else "缺席"
-                }
-                for a in self.attendees
-            ]
-
-            df = pd.DataFrame(records)
-            df.to_excel(str(export_path), index=False, engine="openpyxl")
+            export_path = AttendanceReportService.export_to_excel(self.attendees)
             QMessageBox.information(
                 self, "报表导出成功",
-                f"会议考勤出勤分析表已成功生成：\n{export_path}"
+                f"会议考勤出勤分析表已成功生成：\n{export_path}",
             )
         except Exception as e:
             logger.error(f"导出考勤报表失败: {e}", exc_info=True)

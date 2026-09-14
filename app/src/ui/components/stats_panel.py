@@ -41,7 +41,8 @@ class CircularGaugeWidget(QWidget):
         painter.setPen(pen_bg)
         painter.drawArc(rect, 0, 360 * 16)
 
-        pen_fg = QPen(QColor(ThemeColors.PRIMARY), 6, Qt.SolidLine, Qt.RoundCap)
+        arc_color = ThemeColors.SUCCESS if self.percentage >= 80.0 else ThemeColors.PRIMARY_ACCENT
+        pen_fg = QPen(QColor(arc_color), 6, Qt.SolidLine, Qt.RoundCap)
         painter.setPen(pen_fg)
         span_angle = int(-self.percentage * 3.6 * 16)
         painter.drawArc(rect, 90 * 16, span_angle)
@@ -64,25 +65,25 @@ class CircularGaugeWidget(QWidget):
 class MetricCard(QFrame):
     """单项指标卡片组件。"""
 
-    def __init__(self, title: str, initial_val: str, val_color_hex: str, parent=None):
+    def __init__(self, title: str, initial_val: str, val_color_hex: str, bg_tint_hex: str = "#FFFFFF", parent=None):
         super().__init__(parent)
         self.setStyleSheet(f"""
             QFrame {{
-                background-color: {ThemeColors.WINDOW_BG};
+                background-color: {bg_tint_hex};
                 border: 1px solid {ThemeColors.BORDER_LIGHT};
                 border-radius: 8px;
             }}
         """)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(2)
+        layout.setSpacing(3)
 
         self.lbl_title = QLabel(title)
         self.lbl_title.setStyleSheet(f"font-size: 11px; color: {ThemeColors.TEXT_MUTED}; font-weight: 500;")
         layout.addWidget(self.lbl_title)
 
         self.lbl_val = QLabel(initial_val)
-        self.lbl_val.setStyleSheet(f"font-size: 14px; font-weight: 700; color: {val_color_hex};")
+        self.lbl_val.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {val_color_hex}; font-family: -apple-system, sans-serif;")
         layout.addWidget(self.lbl_val)
 
     def set_value(self, text: str):
@@ -92,21 +93,38 @@ class MetricCard(QFrame):
 class AlertCardItem(QFrame):
     """告警流水动态卡片组件。"""
 
+    _ALERT_COLOR_MAP = {
+        "phone": (ThemeColors.WARNING, ThemeColors.WARNING_TEXT),
+        "device": (ThemeColors.WARNING, ThemeColors.WARNING_TEXT),
+        "using_device": (ThemeColors.WARNING, ThemeColors.WARNING_TEXT),
+        "sleep": (ThemeColors.DANGER, ThemeColors.DANGER_TEXT),
+    }
+
     def __init__(self, alert: DistractionAlert, parent=None):
         super().__init__(parent)
         self.alert = alert
         self._setup_ui()
 
+    @classmethod
+    def resolve_alert_colors(cls, event_type: str) -> tuple:
+        for key, colors in cls._ALERT_COLOR_MAP.items():
+            if key in event_type:
+                return colors
+        return "#EA580C", "#C2410C"
+
     def _setup_ui(self):
+        accent_color, text_color = self.resolve_alert_colors(self.alert.event_type)
+
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {ThemeColors.WINDOW_BG};
                 border: 1px solid {ThemeColors.BORDER_LIGHT};
-                border-left: 3px solid {ThemeColors.DANGER};
+                border-left: 3px solid {accent_color};
                 border-radius: 6px;
             }}
             QFrame:hover {{
                 background-color: {ThemeColors.PANEL_MUTED};
+                border-color: {ThemeColors.BORDER_MUTED};
             }}
         """)
 
@@ -118,13 +136,13 @@ class AlertCardItem(QFrame):
         top_row.setSpacing(6)
 
         lbl_type = QLabel(self.alert.event_label)
-        lbl_type.setStyleSheet(f"font-weight: 600; font-size: 11px; color: {ThemeColors.DANGER_TEXT};")
+        lbl_type.setStyleSheet(f"font-weight: 700; font-size: 11px; color: {text_color};")
         top_row.addWidget(lbl_type)
 
         top_row.addStretch()
 
         lbl_time = QLabel(self.alert.timestamp)
-        lbl_time.setStyleSheet(f"font-size: 10px; color: {ThemeColors.TEXT_MUTED}; font-family: monospace;")
+        lbl_time.setStyleSheet(f"font-size: 10px; color: {ThemeColors.TEXT_MUTED}; font-family: 'SF Pro Text', 'Menlo', monospace;")
         top_row.addWidget(lbl_time)
         layout.addLayout(top_row)
 
@@ -174,7 +192,7 @@ class StatsPanel(QFrame):
         numbers_col.addWidget(lbl_pres_title)
 
         self.lbl_present_val = QLabel("0 / 0")
-        self.lbl_present_val.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {ThemeColors.TEXT_PRIMARY};")
+        self.lbl_present_val.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {ThemeColors.TEXT_PRIMARY}; font-family: -apple-system, sans-serif;")
         numbers_col.addWidget(self.lbl_present_val)
 
         self.lbl_rate_val = QLabel("出勤率 0.0%")
@@ -191,14 +209,25 @@ class StatsPanel(QFrame):
         row_metrics = QHBoxLayout()
         row_metrics.setSpacing(8)
 
-        self.card_present = MetricCard("在席人数", "0 人", ThemeColors.SUCCESS)
-        self.card_absent = MetricCard("离席人数", "0 人", ThemeColors.DANGER)
-        self.card_distract = MetricCard("分心告警", "0 次", ThemeColors.WARNING)
+        self.card_present = MetricCard("在席人数", "0 人", ThemeColors.SUCCESS_TEXT, ThemeColors.SUCCESS_BG)
+        self.card_absent = MetricCard("离席人数", "0 人", ThemeColors.DANGER_TEXT, ThemeColors.DANGER_BG)
+        self.card_distract = MetricCard("分心告警", "0 次", ThemeColors.WARNING_TEXT, ThemeColors.WARNING_BG)
 
         row_metrics.addWidget(self.card_present)
         row_metrics.addWidget(self.card_absent)
         row_metrics.addWidget(self.card_distract)
         layout.addLayout(row_metrics)
+
+        self.lbl_category_detail = QLabel("实时感知分类: 暂无数据")
+        self.lbl_category_detail.setStyleSheet(f"""
+            font-size: 11px;
+            color: {ThemeColors.TEXT_MUTED};
+            background-color: {ThemeColors.WINDOW_BG};
+            border: 1px solid {ThemeColors.BORDER_LIGHT};
+            border-radius: 6px;
+            padding: 6px 10px;
+        """)
+        layout.addWidget(self.lbl_category_detail)
 
         lbl_feed_title = QLabel("实时感知流水")
         lbl_feed_title.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {ThemeColors.TEXT_PRIMARY};")
@@ -223,7 +252,8 @@ class StatsPanel(QFrame):
         self.btn_export = QPushButton("导出考勤分析表 (.xlsx)")
         self.btn_export.setObjectName("btnPrimary")
         self.btn_export.setProperty("class", "btn-primary")
-        self.btn_export.setFixedHeight(36)
+        self.btn_export.setFixedHeight(38)
+        self.btn_export.setCursor(Qt.PointingHandCursor)
         self.btn_export.clicked.connect(lambda: self.export_report_requested.emit())
         layout.addWidget(self.btn_export)
 
@@ -236,6 +266,17 @@ class StatsPanel(QFrame):
         self.card_present.set_value(f"{stats.current_present} 人")
         self.card_absent.set_value(f"{stats.current_absent} 人")
         self.card_distract.set_value(f"{stats.distraction_total} 次")
+
+        if stats.category_counts:
+            self.update_category_counts(stats.category_counts)
+
+    def update_category_counts(self, counts: dict):
+        """刷新前端类别细分频次显示。"""
+        if not counts:
+            self.lbl_category_detail.setText("实时感知分类: 暂无数据")
+            return
+        parts = [f"{k}: {v}" for k, v in counts.items()]
+        self.lbl_category_detail.setText("实时感知分类: " + "  |  ".join(parts))
 
     def add_alert(self, alert: DistractionAlert):
         """向动态流水列表添加告警卡片。"""

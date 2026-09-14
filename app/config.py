@@ -18,9 +18,9 @@ SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # 优先选用标准权重，缺失时按体积逐级降级回退至轻量模型
-DEFAULT_YOLO_WEIGHTS = WEIGHTS_DIR / "yolov8s.pt"
+DEFAULT_YOLO_WEIGHTS = WEIGHTS_DIR / "yolov8n.pt"
 if not DEFAULT_YOLO_WEIGHTS.exists():
-    DEFAULT_YOLO_WEIGHTS = WEIGHTS_DIR / "yolov8n.pt"
+    DEFAULT_YOLO_WEIGHTS = WEIGHTS_DIR / "yolov8s.pt"
 if not DEFAULT_YOLO_WEIGHTS.exists():
     DEFAULT_YOLO_WEIGHTS = WEIGHTS_DIR / "best.pt"
 

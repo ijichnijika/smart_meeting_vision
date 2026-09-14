@@ -5,6 +5,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from app.src.model.enums import AttendanceStatus
+
 
 @dataclass
 class Attendee:
@@ -12,11 +14,18 @@ class Attendee:
     name: str
     department: str
     role: str = "参会成员"
-    status: str = "present"
+    status: str = AttendanceStatus.PRESENT.value
     track_id: Optional[str] = None
     checkin_time: Optional[str] = None
     distraction_count: int = 0
     present_duration_seconds: int = 0
+
+    @property
+    def numeric_track_id(self) -> Optional[int]:
+        if self.track_id:
+            cleaned = self.track_id.lstrip("#")
+            return int(cleaned) if cleaned.isdigit() else None
+        return None
 
 
 @dataclass
@@ -47,6 +56,10 @@ class DetectionBox:
     is_distracted: bool = False
     bound_attendee_name: Optional[str] = None
 
+    @property
+    def formatted_track_id(self) -> Optional[str]:
+        return f"#{self.track_id}" if self.track_id is not None else None
+
 
 @dataclass
 class DistractionAlert:
@@ -67,3 +80,4 @@ class AttendanceStats:
     current_absent: int = 3
     distraction_total: int = 2
     attendance_rate: float = 75.0
+    category_counts: Optional[dict] = None

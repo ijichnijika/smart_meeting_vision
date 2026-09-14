@@ -2,10 +2,11 @@
 参会人员管理与实名挂载面板。
 """
 
-from typing import List
+from typing import List, Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -16,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.src.model import Attendee
+from app.src.model import AttendanceStatus, Attendee
 from app.src.ui.theme import ThemeColors
 
 
@@ -26,7 +27,6 @@ class AvatarWidget(QWidget):
     def __init__(self, name: str, parent=None):
         super().__init__(parent)
         self.char = name[0] if name else "?"
-        # 通过姓名哈希分配预设色盘，保证同一人员头像颜色稳定一致
         idx = abs(hash(name)) % len(ThemeColors.AVATAR_PALETTE)
         self.bg_color_hex, self.text_color_hex = ThemeColors.AVATAR_PALETTE[idx]
         self.setFixedSize(32, 32)
@@ -54,6 +54,7 @@ class AttendeeCard(QFrame):
     def __init__(self, attendee: Attendee, parent=None):
         super().__init__(parent)
         self.attendee = attendee
+        self.setCursor(Qt.PointingHandCursor)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -90,6 +91,20 @@ class AttendeeCard(QFrame):
         self.lbl_status = QLabel()
         self._update_status_badge()
         row_name.addWidget(self.lbl_status)
+
+        if self.attendee.distraction_count > 0:
+            lbl_dist = QLabel(f"分心 {self.attendee.distraction_count} 次")
+            lbl_dist.setStyleSheet(f"""
+                color: {ThemeColors.WARNING_TEXT};
+                background-color: {ThemeColors.WARNING_BG};
+                border: 1px solid {ThemeColors.WARNING_BORDER};
+                border-radius: 4px;
+                padding: 0px 4px;
+                font-size: 9px;
+                font-weight: 600;
+            """)
+            row_name.addWidget(lbl_dist)
+
         row_name.addStretch()
         info_col.addLayout(row_name)
 
@@ -100,13 +115,14 @@ class AttendeeCard(QFrame):
         layout.addLayout(info_col, stretch=1)
 
         self.btn_bind = QPushButton()
+        self.btn_bind.setCursor(Qt.PointingHandCursor)
         self._update_bind_button()
         self.btn_bind.clicked.connect(lambda: self.bind_clicked.emit(self.attendee.id))
         layout.addWidget(self.btn_bind)
 
     def _update_status_badge(self):
         """更新在席或离席状态徽标。"""
-        is_present = (self.attendee.status == "present")
+        is_present = (self.attendee.status == AttendanceStatus.PRESENT.value)
         text = "在席" if is_present else "离席"
         color = ThemeColors.SUCCESS_TEXT if is_present else ThemeColors.DANGER_TEXT
         bg = ThemeColors.SUCCESS_BG if is_present else ThemeColors.DANGER_BG
@@ -118,7 +134,7 @@ class AttendeeCard(QFrame):
             background-color: {bg};
             border: 1px solid {border};
             border-radius: 4px;
-            padding: 0px 5px;
+            padding: 1px 6px;
             font-size: 10px;
             font-weight: 600;
         """)
@@ -127,7 +143,7 @@ class AttendeeCard(QFrame):
         """更新关联状态或已绑定的追踪标识。"""
         if self.attendee.track_id:
             self.btn_bind.setText(self.attendee.track_id)
-            self.btn_bind.setToolTip("已关联目标，点击可修改")
+            self.btn_bind.setToolTip("已关联目标编号，点击可重新设定")
             self.btn_bind.setStyleSheet(f"""
                 QPushButton {{
                     background-color: {ThemeColors.PRIMARY_LIGHT};
@@ -138,10 +154,14 @@ class AttendeeCard(QFrame):
                     font-size: 11px;
                     padding: 3px 8px;
                 }}
+                QPushButton:hover {{
+                    background-color: #DBEAFE;
+                    border-color: #93C5FD;
+                }}
             """)
         else:
             self.btn_bind.setText("+ 关联")
-            self.btn_bind.setToolTip("关联监控画面中的目标标识")
+            self.btn_bind.setToolTip("关联监控画面中的目标跟踪编号")
             self.btn_bind.setStyleSheet(f"""
                 QPushButton {{
                     background-color: #FFFFFF;
@@ -153,9 +173,9 @@ class AttendeeCard(QFrame):
                 }}
                 QPushButton:hover {{
                     background-color: {ThemeColors.SURFACE_HOVER};
-                    color: {ThemeColors.PRIMARY};
+                    color: {ThemeColors.PRIMARY_ACCENT};
                     border-style: solid;
-                    border-color: {ThemeColors.PRIMARY};
+                    border-color: {ThemeColors.PRIMARY_ACCENT};
                 }}
             """)
 
@@ -174,6 +194,7 @@ class AttendeePanel(QFrame):
         super().__init__(parent)
         self.attendees: List[Attendee] = []
         self.cards: List[AttendeeCard] = []
+        self.current_filter: str = "ALL"
         self._setup_ui()
 
     def _setup_ui(self):
@@ -192,7 +213,7 @@ class AttendeePanel(QFrame):
             padding: 8px;
         """)
         box_layout = QVBoxLayout(info_box)
-        box_layout.setContentsMargins(4, 4, 4, 4)
+        box_layout.setContentsMargins(6, 6, 6, 6)
         box_layout.setSpacing(3)
 
         lbl_title = QLabel("软件工程项目训练 中期进度评审")
@@ -206,9 +227,33 @@ class AttendeePanel(QFrame):
 
         layout.addWidget(info_box)
 
+        self.filter_group = QButtonGroup(self)
+        self.filter_group.setExclusive(True)
+        filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(4)
+
+        filters = [
+            ("全部", "ALL"),
+            ("在席", "PRESENT"),
+            ("离席", "ABSENT"),
+            ("未关联", "UNBOUND"),
+        ]
+        for idx, (label, fkey) in enumerate(filters):
+            btn = QPushButton(label)
+            btn.setProperty("class", "filter-chip")
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            if idx == 0:
+                btn.setChecked(True)
+            self.filter_group.addButton(btn, idx)
+            btn.clicked.connect(lambda checked, k=fkey: self._on_filter_changed(k))
+            filter_layout.addWidget(btn)
+
+        layout.addLayout(filter_layout)
+
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("搜索参会人姓名或部门...")
-        self.search_input.textChanged.connect(self._filter_list)
+        self.search_input.textChanged.connect(lambda _: self._apply_filters())
         layout.addWidget(self.search_input)
 
         self.lbl_counts = QLabel("参会人员 (共 0 人 · 0 人在席)")
@@ -249,25 +294,50 @@ class AttendeePanel(QFrame):
             self.list_layout.insertWidget(len(self.cards) - 1, card)
 
         self._update_counts()
+        self._apply_filters()
 
     def _update_counts(self):
         """更新在席人数统计标签。"""
         total = len(self.attendees)
-        present = sum(1 for a in self.attendees if a.status == "present")
+        present = sum(1 for a in self.attendees if a.status == AttendanceStatus.PRESENT.value)
         self.lbl_counts.setText(f"参会人员 (共 {total} 人 · {present} 人在席)")
 
-    def _filter_list(self, text: str):
-        """按搜索关键词过滤可见条目。"""
-        query = text.strip().lower()
+    def _on_filter_changed(self, filter_key: str):
+        """响应筛选药丸切换。"""
+        self.current_filter = filter_key
+        self._apply_filters()
+
+    def _apply_filters(self):
+        """结合搜索框文本与当前筛选标签综合过滤可见卡片。"""
+        query = self.search_input.text().strip().lower()
         matched = 0
+
         for card in self.cards:
-            match = (query in card.attendee.name.lower() or
-                     query in card.attendee.department.lower())
-            card.setVisible(match)
-            if match:
+            att = card.attendee
+            text_match = (
+                not query
+                or query in att.name.lower()
+                or query in att.department.lower()
+            )
+
+            status_match = True
+            if self.current_filter == "PRESENT":
+                status_match = (att.status == AttendanceStatus.PRESENT.value)
+            elif self.current_filter == "ABSENT":
+                status_match = (att.status != AttendanceStatus.PRESENT.value)
+            elif self.current_filter == "UNBOUND":
+                status_match = (not att.track_id)
+
+            is_visible = text_match and status_match
+            card.setVisible(is_visible)
+            if is_visible:
                 matched += 1
 
         self.lbl_empty.setVisible(matched == 0)
+
+    def _filter_list(self, text: str):
+        """按关键字过滤参会人员卡片列表。"""
+        self._apply_filters()
 
     def get_total_count(self) -> int:
         return len(self.cards)
@@ -282,3 +352,4 @@ class AttendeePanel(QFrame):
                 card.attendee.track_id = track_id
                 card._update_bind_button()
                 break
+        self._apply_filters()
