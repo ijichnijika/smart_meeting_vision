@@ -55,6 +55,7 @@ ENV/
 # Datasets, Video Media & Runtime Storage
 data/
 datasets/
+snapshots/
 runs/
 *.mp4
 *.avi

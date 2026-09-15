@@ -1,0 +1,57 @@
+belt_0:
+  angle_alarm: 6.0
+  belt_width: 180
+  border_left:
+  - - 580
+    - 422
+  - - 342
+    - 967
+  border_right:
+  - - 929
+    - 438
+  - - 1152
+    - 1009
+  dist_alarm: 5.0
+  size:
+    height: 1080
+    width: 1920
+  snapshot: ./snapshot/belt_0_snapshot.jpg
+  url: ./video/test.mp4
+belt_1:
+  angle_alarm: 5.0
+  belt_width: 180
+  border_left:
+  - - 580
+    - 422
+  - - 342
+    - 967
+  border_right:
+  - - 929
+    - 438
+  - - 1152
+    - 1009
+  dist_alarm: 4.5
+  size:
+    height: 1080
+    width: 1920
+  snapshot: ./snapshot/belt_1_snapshot.jpg
+  url: ./video/test.mp4
+belt_2:
+  angle_alarm: 5.5
+  belt_width: 180
+  border_left:
+  - - 580
+    - 422
+  - - 342
+    - 967
+  border_right:
+  - - 929
+    - 438
+  - - 1152
+    - 1009
+  dist_alarm: 5.0
+  size:
+    height: 1080
+    width: 1920
+  snapshot: ./snapshot/belt_2_snapshot.jpg
+  url: ./video/test.mp4
