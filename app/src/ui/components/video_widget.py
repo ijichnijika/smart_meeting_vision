@@ -7,7 +7,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
-from app.src.model import DetectionBox
+from app.src.model import DetectionBox, SeatZone
 from app.src.ui.theme import ThemeColors
 
 
@@ -15,17 +15,40 @@ class VideoWidget(QWidget):
     """视频图像渲染与目标拾取交互组件。"""
 
     tracking_id_selected = Signal(int)
+    seat_zone_drawn = Signal(int, int, int, int)
+    seat_zone_clicked = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_frame: Optional[QImage] = None
         self.detections: List[DetectionBox] = []
+        self.seat_zones: List[SeatZone] = []
         self.current_fps: float = 0.0
         self.selected_track_id: Optional[int] = None
         self._render_rect = QRectF()
 
+        self.is_drawing_seat: bool = False
+        self._is_dragging_rect: bool = False
+        self._drag_start_pos = QPointF()
+        self._drag_current_pos = QPointF()
+
         self.setMinimumSize(480, 270)
         self.setAttribute(Qt.WA_OpaquePaintEvent, False)
+
+    def set_seat_zones(self, zones: List[SeatZone]):
+        """设置当前需要叠加渲染的工位列表。"""
+        self.seat_zones = list(zones)
+        self.update()
+
+    def set_drawing_seat_mode(self, enabled: bool):
+        """开启或关闭鼠标框选工位模式。"""
+        self.is_drawing_seat = enabled
+        self._is_dragging_rect = False
+        if enabled:
+            self.setCursor(Qt.CrossCursor)
+        else:
+            self.unsetCursor()
+        self.update()
 
     def update_frame(self, image: QImage, detections: List[DetectionBox], fps: float = 0.0):
         """更新当前视频帧与检测目标列表。"""
@@ -58,19 +81,23 @@ class VideoWidget(QWidget):
         if img_w <= 0 or img_h <= 0:
             return
 
-        # 等比例居中缩放
-        scale = min(w / img_w, h / img_h)
-        draw_w = img_w * scale
-        draw_h = img_h * scale
-        draw_x = (w - draw_w) / 2.0
-        draw_y = (h - draw_h) / 2.0
-        self._render_rect = QRectF(draw_x, draw_y, draw_w, draw_h)
+        render_rect = self._get_render_rect()
+        if not render_rect.isValid() or render_rect.width() <= 0:
+            return
 
-        painter.drawImage(self._render_rect, self.current_frame)
+        scale = render_rect.width() / img_w
+        draw_x, draw_y = render_rect.x(), render_rect.y()
+
+        painter.drawImage(render_rect, self.current_frame)
+
+        for zone in self.seat_zones:
+            self._draw_seat_zone_item(painter, zone, draw_x, draw_y, scale)
 
         for det in self.detections:
-            if det.track_id is not None and det.track_id == self.selected_track_id:
-                self._draw_detection_item(painter, det, draw_x, draw_y, scale)
+            self._draw_detection_item(painter, det, draw_x, draw_y, scale)
+
+        if self.is_drawing_seat and self._is_dragging_rect:
+            self._draw_rubber_band(painter, scale)
 
         self._draw_hud(painter)
 
@@ -215,19 +242,102 @@ class VideoWidget(QWidget):
         painter.setPen(QColor("#F1F5F9"))
         painter.drawText(hud_rect, Qt.AlignCenter, hud_text)
 
+    def _draw_seat_zone_item(self, painter: QPainter, zone: SeatZone, ox: float, oy: float, scale: float):
+        """在视频画面上绘制工位区域虚线框与状态胶囊标签。"""
+        zx = ox + zone.x1 * scale
+        zy = oy + zone.y1 * scale
+        zw = (zone.x2 - zone.x1) * scale
+        zh = (zone.y2 - zone.y1) * scale
+        zone_rect = QRectF(zx, zy, zw, zh)
+
+        if zone.current_status == "occupied":
+            stroke = QColor(16, 185, 129, 210)
+            fill = QColor(16, 185, 129, 25)
+            tag_bg = QColor(16, 185, 129, 230)
+            tag_text = f"工位 #{zone.seat_index} · {zone.assigned_attendee_name or '在席'}"
+        elif zone.current_status == "absent":
+            stroke = QColor(239, 68, 68, 230)
+            fill = QColor(239, 68, 68, 35)
+            tag_bg = QColor(239, 68, 68, 230)
+            tag_text = f"工位 #{zone.seat_index} · {zone.assigned_attendee_name or ''} (离席)"
+        else:
+            stroke = QColor(148, 163, 184, 180)
+            fill = QColor(148, 163, 184, 15)
+            tag_bg = QColor(100, 116, 139, 200)
+            tag_text = f"工位 #{zone.seat_index} · 空置"
+
+        pen = QPen(stroke, 1.8, Qt.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(fill))
+        painter.drawRoundedRect(zone_rect, 4, 4)
+
+        self._draw_tag_pill(painter, zone_rect, tag_bg, tag_text, oy)
+
+    def _draw_rubber_band(self, painter: QPainter, scale: float):
+        """绘制鼠标框选工位时的实时预览框与尺寸提示。"""
+        p1 = self._drag_start_pos
+        p2 = self._drag_current_pos
+        rx = min(p1.x(), p2.x())
+        ry = min(p1.y(), p2.y())
+        rw = abs(p1.x() - p2.x())
+        rh = abs(p1.y() - p2.y())
+        preview_rect = QRectF(rx, ry, rw, rh)
+
+        pen = QPen(QColor("#3B82F6"), 2, Qt.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(QColor(59, 130, 246, 35)))
+        painter.drawRoundedRect(preview_rect, 4, 4)
+
+        tag_text = f"划定工位范围: {int(rw / max(0.01, scale))} × {int(rh / max(0.01, scale))}"
+        self._draw_tag_pill(painter, preview_rect, QColor("#2563EB"), tag_text, 0)
+
+    def _get_render_rect(self) -> QRectF:
+        """获取视频渲染几何矩形，若未触发绘制则根据尺寸动态推导。"""
+        if self._render_rect.isValid():
+            return self._render_rect
+        if self.current_frame and not self.current_frame.isNull() and self.current_frame.width() > 0:
+            w, h = max(1, self.width()), max(1, self.height())
+            img_w = self.current_frame.width()
+            img_h = self.current_frame.height()
+            scale = min(w / img_w, h / img_h)
+            draw_w = img_w * scale
+            draw_h = img_h * scale
+            draw_x = (w - draw_w) / 2.0
+            draw_y = (h - draw_h) / 2.0
+            self._render_rect = QRectF(draw_x, draw_y, draw_w, draw_h)
+            return self._render_rect
+        return QRectF()
+
     def mousePressEvent(self, event):
-        """响应鼠标点击，拾取光标所在位置的检测目标。"""
-        if event.button() != Qt.LeftButton or not self._render_rect.isValid():
+        """响应鼠标点击事件，处理框选工位与目标拾取。"""
+        if event.button() != Qt.LeftButton:
             super().mousePressEvent(event)
             return
 
-        if not self.current_frame or self.current_frame.width() <= 0:
+        if self.is_drawing_seat:
+            self._drag_start_pos = event.position()
+            self._drag_current_pos = event.position()
+            self._is_dragging_rect = True
+            self.update()
+            return
+
+        render_rect = self._get_render_rect()
+        if not render_rect.isValid() or not self.current_frame or self.current_frame.width() <= 0:
             super().mousePressEvent(event)
             return
 
         click_pos = event.position()
-        scale = self._render_rect.width() / self.current_frame.width()
-        ox, oy = self._render_rect.x(), self._render_rect.y()
+        scale = render_rect.width() / self.current_frame.width()
+        ox, oy = render_rect.x(), render_rect.y()
+
+        for zone in self.seat_zones:
+            zx = ox + zone.x1 * scale
+            zy = oy + zone.y1 * scale
+            zw = (zone.x2 - zone.x1) * scale
+            zh = (zone.y2 - zone.y1) * scale
+            if QRectF(zx, zy, zw, zh).contains(click_pos):
+                self.seat_zone_clicked.emit(zone)
+                return
 
         for det in self.detections:
             if det.track_id is None:
@@ -242,3 +352,50 @@ class VideoWidget(QWidget):
                 return
 
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """处理鼠标移动，实时更新工位框选预览。"""
+        if self.is_drawing_seat and self._is_dragging_rect:
+            self._drag_current_pos = event.position()
+            self.update()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """处理鼠标释放，完成工位框选并转换物理分辨率坐标。"""
+        if self.is_drawing_seat and self._is_dragging_rect:
+            self._is_dragging_rect = False
+            self._drag_current_pos = event.position()
+            render_rect = self._get_render_rect()
+
+            if self.current_frame and self.current_frame.width() > 0 and render_rect.isValid():
+                scale = render_rect.width() / self.current_frame.width()
+                ox, oy = render_rect.x(), render_rect.y()
+
+                p1 = self._drag_start_pos
+                p2 = self._drag_current_pos
+                rx = min(p1.x(), p2.x())
+                ry = min(p1.y(), p2.y())
+                rw = abs(p1.x() - p2.x())
+                rh = abs(p1.y() - p2.y())
+
+                fx1 = int(round((rx - ox) / scale))
+                fy1 = int(round((ry - oy) / scale))
+                fx2 = int(round((rx + rw - ox) / scale))
+                fy2 = int(round((ry + rh - oy) / scale))
+
+                img_w = self.current_frame.width()
+                img_h = self.current_frame.height()
+                fx1 = max(0, min(img_w - 1, fx1))
+                fy1 = max(0, min(img_h - 1, fy1))
+                fx2 = max(0, min(img_w - 1, fx2))
+                fy2 = max(0, min(img_h - 1, fy2))
+
+                if abs(fx2 - fx1) >= 20 and abs(fy2 - fy1) >= 20:
+                    self.seat_zone_drawn.emit(min(fx1, fx2), min(fy1, fy2), max(fx1, fx2), max(fy1, fy2))
+
+            self.set_drawing_seat_mode(False)
+            self.update()
+            return
+
+        super().mouseReleaseEvent(event)

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.src.model import AttendanceStatus, Attendee
+from app.src.model import AttendanceStatus, Attendee, MeetingInfo
 from app.src.ui.theme import ThemeColors
 
 
@@ -72,8 +72,8 @@ class AttendeeCard(QFrame):
         """)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(10)
+        layout.setContentsMargins(8, 7, 8, 7)
+        layout.setSpacing(8)
 
         self.avatar = AvatarWidget(self.attendee.name)
         layout.addWidget(self.avatar)
@@ -189,6 +189,9 @@ class AttendeePanel(QFrame):
 
     attendee_selected = Signal(object)
     bind_requested = Signal(str)
+    edit_meeting_requested = Signal()
+    manage_meetings_requested = Signal()
+    import_csv_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -210,21 +213,91 @@ class AttendeePanel(QFrame):
             background-color: {ThemeColors.WINDOW_BG};
             border: 1px solid {ThemeColors.BORDER_LIGHT};
             border-radius: 8px;
-            padding: 8px;
         """)
         box_layout = QVBoxLayout(info_box)
-        box_layout.setContentsMargins(6, 6, 6, 6)
-        box_layout.setSpacing(3)
+        box_layout.setContentsMargins(10, 10, 10, 10)
+        box_layout.setSpacing(6)
 
-        lbl_title = QLabel("软件工程项目训练 中期进度评审")
-        lbl_title.setStyleSheet(f"font-weight: 700; font-size: 13px; color: {ThemeColors.TEXT_PRIMARY};")
-        lbl_title.setWordWrap(True)
-        box_layout.addWidget(lbl_title)
+        header_row = QHBoxLayout()
+        header_row.setSpacing(4)
 
-        lbl_venue = QLabel("第一报告厅 · 实时感知")
-        lbl_venue.setStyleSheet(f"font-size: 11px; color: {ThemeColors.TEXT_MUTED};")
-        box_layout.addWidget(lbl_venue)
+        self.badge_status = QLabel("进行中")
+        self.badge_status.setStyleSheet(f"""
+            color: {ThemeColors.SUCCESS_TEXT};
+            background-color: {ThemeColors.SUCCESS_BG};
+            border: 1px solid {ThemeColors.SUCCESS_BORDER};
+            border-radius: 4px;
+            padding: 1px 5px;
+            font-size: 10px;
+            font-weight: 600;
+        """)
+        header_row.addWidget(self.badge_status)
 
+        self.lbl_dept = QLabel("研发中心")
+        self.lbl_dept.setStyleSheet(f"font-size: 11px; color: {ThemeColors.TEXT_MUTED}; font-weight: 500;")
+        header_row.addWidget(self.lbl_dept)
+
+        header_row.addStretch()
+
+        self.btn_manage_meetings = QPushButton("会议管理")
+        self.btn_manage_meetings.setCursor(Qt.PointingHandCursor)
+        self.btn_manage_meetings.setFixedHeight(22)
+        self.btn_manage_meetings.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #FFFFFF;
+                color: {ThemeColors.PRIMARY};
+                border: 1px solid {ThemeColors.PRIMARY_BORDER};
+                border-radius: 4px;
+                padding: 1px 6px;
+                font-size: 10px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: #EFF6FF;
+            }}
+        """)
+        self.btn_manage_meetings.clicked.connect(lambda: self.manage_meetings_requested.emit())
+        header_row.addWidget(self.btn_manage_meetings)
+
+        self.btn_import_csv = QPushButton("导入名单")
+        self.btn_import_csv.setCursor(Qt.PointingHandCursor)
+        self.btn_import_csv.setFixedHeight(22)
+        self.btn_import_csv.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #EFF6FF;
+                color: {ThemeColors.PRIMARY};
+                border: 1px solid {ThemeColors.PRIMARY_BORDER};
+                border-radius: 4px;
+                padding: 1px 6px;
+                font-size: 10px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: #DBEAFE;
+            }}
+        """)
+        self.btn_import_csv.clicked.connect(lambda: self.import_csv_requested.emit())
+        header_row.addWidget(self.btn_import_csv)
+
+        box_layout.addLayout(header_row)
+
+        self.lbl_title = QLabel("软件工程项目训练 中期进度评审")
+        self.lbl_title.setStyleSheet(f"font-weight: 700; font-size: 13px; color: {ThemeColors.TEXT_PRIMARY}; line-height: 1.3;")
+        self.lbl_title.setWordWrap(True)
+        box_layout.addWidget(self.lbl_title)
+
+        meta_col = QVBoxLayout()
+        meta_col.setSpacing(2)
+
+        self.lbl_venue = QLabel("主持: 夏一帆 · 第一报告厅")
+        self.lbl_venue.setStyleSheet(f"font-size: 11px; color: {ThemeColors.TEXT_MUTED};")
+        meta_col.addWidget(self.lbl_venue)
+
+        self.lbl_schedule = QLabel("时段: 10:00 - 12:00 · 应到 12 人")
+        self.lbl_schedule.setStyleSheet(f"font-size: 10px; color: {ThemeColors.TEXT_PLACEHOLDER}; font-family: 'SF Pro Text', 'Menlo', monospace;")
+        meta_col.addWidget(self.lbl_schedule)
+
+        box_layout.addLayout(meta_col)
         layout.addWidget(info_box)
 
         self.filter_group = QButtonGroup(self)
@@ -262,9 +335,10 @@ class AttendeePanel(QFrame):
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll_widget = QWidget()
         self.list_layout = QVBoxLayout(self.scroll_widget)
-        self.list_layout.setContentsMargins(0, 0, 0, 0)
+        self.list_layout.setContentsMargins(0, 0, 2, 0)
         self.list_layout.setSpacing(6)
 
         self.lbl_empty = QLabel("未找到匹配的参会人员")
@@ -276,6 +350,55 @@ class AttendeePanel(QFrame):
         self.list_layout.addStretch()
         self.scroll_area.setWidget(self.scroll_widget)
         layout.addWidget(self.scroll_area, stretch=1)
+
+    def update_meeting_info(self, meeting: MeetingInfo):
+        """更新面板顶部展示的会议主题与元数据。"""
+        self.lbl_title.setText(meeting.title)
+        self.lbl_dept.setText(meeting.department or "常规会议")
+
+        host = meeting.host_name or "未指定"
+        room = meeting.room or "主会场"
+        self.lbl_venue.setText(f"主持: {host} · {room}")
+
+        s_time = str(meeting.start_time).split()[-1][:5] if meeting.start_time else "10:00"
+        e_time = str(meeting.end_time).split()[-1][:5] if meeting.end_time else "12:00"
+        count = meeting.expected_count or len(self.attendees) or 12
+        self.lbl_schedule.setText(f"时段: {s_time} - {e_time} · 应到 {count} 人")
+
+        status = meeting.status
+        if status in ("in_progress", "active"):
+            self.badge_status.setText("进行中")
+            self.badge_status.setStyleSheet(f"""
+                color: {ThemeColors.SUCCESS_TEXT};
+                background-color: {ThemeColors.SUCCESS_BG};
+                border: 1px solid {ThemeColors.SUCCESS_BORDER};
+                border-radius: 4px;
+                padding: 1px 6px;
+                font-size: 10px;
+                font-weight: 600;
+            """)
+        elif status == "scheduled":
+            self.badge_status.setText("已安排")
+            self.badge_status.setStyleSheet(f"""
+                color: {ThemeColors.PRIMARY};
+                background-color: {ThemeColors.PRIMARY_LIGHT};
+                border: 1px solid {ThemeColors.PRIMARY_BORDER};
+                border-radius: 4px;
+                padding: 1px 6px;
+                font-size: 10px;
+                font-weight: 600;
+            """)
+        else:
+            self.badge_status.setText("已归档")
+            self.badge_status.setStyleSheet(f"""
+                color: {ThemeColors.TEXT_MUTED};
+                background-color: {ThemeColors.PANEL_MUTED};
+                border: 1px solid {ThemeColors.BORDER_LIGHT};
+                border-radius: 4px;
+                padding: 1px 6px;
+                font-size: 10px;
+                font-weight: 600;
+            """)
 
     def set_attendees(self, attendees: List[Attendee]):
         """加载全量人员列表并构建卡片。"""

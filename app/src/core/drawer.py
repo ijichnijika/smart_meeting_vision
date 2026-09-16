@@ -9,7 +9,8 @@ from typing import List, Optional, Tuple, Union
 import cv2
 import numpy as np
 
-from app.src.model import BehaviorType, DetectionBox
+from app.src.utils.geometry import clamp_bbox
+from app.src.model import BehaviorType, DetectionBox, SeatZone
 
 
 def render_box_with_label(
@@ -37,22 +38,6 @@ def render_summary_bar(frame: np.ndarray, counts: Union[Counter, dict]):
     total_num = sum(counts.values())
     summary = f"best.pt ({total_num})  " + "  ".join(f"{n}: {c}" for n, c in counts.items())
     cv2.putText(frame, summary, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.70, (0, 255, 255), 2)
-
-
-def clamp_bbox(
-    x1: Union[int, float],
-    y1: Union[int, float],
-    x2: Union[int, float],
-    y2: Union[int, float],
-    width: int,
-    height: int,
-) -> Tuple[int, int, int, int]:
-    """裁剪限制边界框坐标在图像有效宽高范围内。"""
-    c_x1 = max(0, min(width - 1, int(x1)))
-    c_y1 = max(0, min(height - 1, int(y1)))
-    c_x2 = max(0, min(width - 1, int(x2)))
-    c_y2 = max(0, min(height - 1, int(y2)))
-    return c_x1, c_y1, c_x2, c_y2
 
 
 def render_detections(
@@ -100,6 +85,44 @@ def render_evidence_snapshot(frame: np.ndarray, det: DetectionBox, timestamp_str
     cv2.rectangle(canvas, (10, h - 35), (w - 10, h - 10), (15, 23, 42), -1)
     cv2.putText(canvas, watermark, (20, h - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
     return canvas
+
+
+def render_seat_leave_snapshot(frame: np.ndarray, zone: SeatZone, timestamp_str: str) -> np.ndarray:
+    """在帧上绘制工位离席警示框、人员信息与时间水印，生成离席取证图片。"""
+    canvas = frame.copy()
+    h, w = canvas.shape[:2]
+    x1, y1, x2, y2 = clamp_bbox(zone.x1, zone.y1, zone.x2, zone.y2, w, h)
+
+    cv2.rectangle(canvas, (x1, y1), (x2, y2), (0, 0, 255), 2)
+    name_str = f" {zone.assigned_attendee_name}" if zone.assigned_attendee_name else ""
+    label = f"LEAVING: SEAT #{zone.seat_index}{name_str}"
+    render_box_with_label(canvas, x1, y1, x2, y2, label, (0, 0, 255), (0, 0, 255))
+
+    watermark = f"EVIDENCE {timestamp_str} | SEAT #{zone.seat_index} ABSENT | {zone.assigned_attendee_name or 'UNASSIGNED'}"
+    cv2.rectangle(canvas, (10, h - 35), (w - 10, h - 10), (15, 23, 42), -1)
+    cv2.putText(canvas, watermark, (20, h - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+    return canvas
+
+
+def render_seat_zones(frame: np.ndarray, zones: List[SeatZone]):
+    """在 OpenCV 帧上绘制工位区域与当前在席状态。"""
+    h, w = frame.shape[:2]
+    for zone in zones:
+        x1, y1, x2, y2 = clamp_bbox(zone.x1, zone.y1, zone.x2, zone.y2, w, h)
+        if zone.current_status == "occupied":
+            color = (0, 200, 0)
+            status_text = "OCCUPIED"
+        elif zone.current_status == "absent":
+            color = (0, 0, 255)
+            status_text = "ABSENT"
+        else:
+            color = (180, 180, 180)
+            status_text = "EMPTY"
+
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        name_str = f" {zone.assigned_attendee_name}" if zone.assigned_attendee_name else ""
+        label = f"#{zone.seat_index}{name_str} [{status_text}]"
+        render_box_with_label(frame, x1, y1, x2, y2, label, color, color, font_scale=0.5, thickness=1)
 
 
 def draw_detections(

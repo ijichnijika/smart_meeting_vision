@@ -265,6 +265,49 @@ QScrollBar::handle:vertical:hover {{
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
 }}
+QScrollBar:horizontal {{
+    border: none;
+    background: transparent;
+    height: 6px;
+    margin: 0px;
+}}
+QScrollBar::handle:horizontal {{
+    background: {ThemeColors.BORDER_MUTED};
+    border-radius: 3px;
+    min-width: 24px;
+}}
+QScrollBar::handle:horizontal:hover {{
+    background: {ThemeColors.TEXT_MUTED};
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0px;
+}}
+
+/* 弹窗与对话框 */
+QDialog {{
+    background-color: {ThemeColors.PANEL_BG};
+}}
+
+/* 数据表格通用规范 */
+QTableWidget {{
+    background-color: #FFFFFF;
+    alternate-background-color: #F8FAFC;
+    border: 1px solid {ThemeColors.BORDER_LIGHT};
+    border-radius: 6px;
+    gridline-color: {ThemeColors.BORDER_LIGHT};
+    selection-background-color: {ThemeColors.PRIMARY_LIGHT};
+    selection-color: {ThemeColors.PRIMARY};
+    font-size: 12px;
+}}
+QHeaderView::section {{
+    background-color: {ThemeColors.PANEL_MUTED};
+    color: {ThemeColors.TEXT_PRIMARY};
+    font-weight: 600;
+    padding: 6px 8px;
+    border: none;
+    border-right: 1px solid {ThemeColors.BORDER_LIGHT};
+    border-bottom: 1px solid {ThemeColors.BORDER_LIGHT};
+}}
 
 /* 细分割线 */
 QFrame.divider {{

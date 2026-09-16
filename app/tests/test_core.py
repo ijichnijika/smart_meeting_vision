@@ -32,6 +32,34 @@ def test_video_capture_stream():
     assert stream.is_opened() is False
 
 
+def test_video_capture_stream_concurrent_change_source():
+    """回归测试：多线程并发读取与切换源不会导致 libavcodec 断言失败或死锁崩溃"""
+    import threading
+    import time
+
+    stream = VideoCaptureStream(video_source=str(DEFAULT_DEMO_VIDEO))
+    assert stream.open() is True
+
+    running = True
+
+    def reader():
+        while running:
+            ret, frame = stream.read()
+            time.sleep(0.001)
+
+    t = threading.Thread(target=reader, daemon=True)
+    t.start()
+
+    for _ in range(10):
+        time.sleep(0.01)
+        stream.change_source(str(DEFAULT_DEMO_VIDEO))
+
+    running = False
+    t.join(timeout=1.0)
+    stream.release()
+    assert stream.is_opened() is False
+
+
 def test_core_drawer_rendering():
     """测试 drawer 原生帧绘制与摘要横幅"""
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -112,7 +140,7 @@ def test_attendance_export_service(tmp_path):
 
 
 def test_evidence_snapshot_and_alert_lifecycle(tmp_path, monkeypatch):
-    """测试 FR-5.1 告警自动截取证据帧、时间水印与物理落盘闭环"""
+    """测试告警自动截取证据帧、时间水印与物理落盘闭环"""
     from app.src.core.drawer import render_evidence_snapshot
     from app.src.service.vision_service import VisionService
 
@@ -153,3 +181,18 @@ def test_behavior_enum_distraction():
     assert BehaviorType.is_distracted_code("look_forward") is False
     assert BehaviorType.is_distracted_code("cell phone") is False
     assert BehaviorType.is_distracted_code("unknown_code") is False
+
+
+def test_interaction_strategies():
+    """测试设备交互研判策略：精简为纯布尔谓词判断 is_holding_phone(person_bbox, matched_phones, pose_keypoints)。"""
+    from app.src.core.strategy import BBoxOverlapStrategy, PoseWristDistanceStrategy
+
+    bbox_strat = BBoxOverlapStrategy()
+    assert bbox_strat.is_holding_phone((0, 0, 100, 100), []) is False
+    assert bbox_strat.is_holding_phone((0, 0, 100, 100), [([10, 10, 30, 40], 20.0, 25.0)]) is True
+
+    pose_strat = PoseWristDistanceStrategy(wrist_dist_threshold=80.0)
+    # 无关键点时回退判定
+    assert pose_strat.is_holding_phone((0, 0, 100, 100), [([10, 10, 30, 40], 20.0, 25.0)], None) is True
+    assert pose_strat.is_holding_phone((0, 0, 100, 100), [], None) is False
+

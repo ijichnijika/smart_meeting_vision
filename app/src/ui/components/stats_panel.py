@@ -156,6 +156,7 @@ class StatsPanel(QFrame):
     """出勤看板与实时告警面板。"""
 
     export_report_requested = Signal()
+    MAX_ALERT_CARDS = 100
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -218,10 +219,12 @@ class StatsPanel(QFrame):
         row_metrics.addWidget(self.card_distract)
         layout.addLayout(row_metrics)
 
-        self.lbl_category_detail = QLabel("实时感知分类: 暂无数据")
+        self.lbl_category_detail = QLabel("实时感知分布: 暂无数据")
+        self.lbl_category_detail.setWordWrap(True)
         self.lbl_category_detail.setStyleSheet(f"""
             font-size: 11px;
-            color: {ThemeColors.TEXT_MUTED};
+            line-height: 1.4;
+            color: {ThemeColors.TEXT_SECONDARY};
             background-color: {ThemeColors.WINDOW_BG};
             border: 1px solid {ThemeColors.BORDER_LIGHT};
             border-radius: 6px;
@@ -235,9 +238,10 @@ class StatsPanel(QFrame):
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll_widget = QWidget()
         self.feed_layout = QVBoxLayout(self.scroll_widget)
-        self.feed_layout.setContentsMargins(0, 0, 0, 0)
+        self.feed_layout.setContentsMargins(0, 0, 2, 0)
         self.feed_layout.setSpacing(6)
 
         self.lbl_empty_feed = QLabel("全场秩序良好，暂无分心告警")
@@ -273,10 +277,10 @@ class StatsPanel(QFrame):
     def update_category_counts(self, counts: dict):
         """刷新前端类别细分频次显示。"""
         if not counts:
-            self.lbl_category_detail.setText("实时感知分类: 暂无数据")
+            self.lbl_category_detail.setText("实时感知分布: 暂无数据")
             return
         parts = [f"{k}: {v}" for k, v in counts.items()]
-        self.lbl_category_detail.setText("实时感知分类: " + "  |  ".join(parts))
+        self.lbl_category_detail.setText("实时感知分布: " + "  ·  ".join(parts))
 
     def add_alert(self, alert: DistractionAlert):
         """向动态流水列表添加告警卡片。"""
@@ -287,6 +291,12 @@ class StatsPanel(QFrame):
         self.alert_cards.insert(0, card)
         self.feed_layout.insertWidget(0, card)
         card.show()
+
+        # Evict oldest cards when exceeding capacity
+        while len(self.alert_cards) > self.MAX_ALERT_CARDS:
+            oldest = self.alert_cards.pop()
+            self.feed_layout.removeWidget(oldest)
+            oldest.deleteLater()
 
     def get_alert_count(self) -> int:
         """获取当前告警卡片数量。"""

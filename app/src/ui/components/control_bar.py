@@ -26,6 +26,7 @@ class ControlBar(QFrame):
     source_changed = Signal(object)
     snapshot_requested = Signal()
     record_toggled = Signal(bool)
+    seat_zones_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -83,6 +84,12 @@ class ControlBar(QFrame):
         self.btn_snapshot.setCursor(Qt.PointingHandCursor)
         self.btn_snapshot.clicked.connect(lambda: self.snapshot_requested.emit())
         layout.addWidget(self.btn_snapshot)
+
+        self.btn_seat_zones = QPushButton("工位管理")
+        self.btn_seat_zones.setProperty("class", "btn-secondary")
+        self.btn_seat_zones.setCursor(Qt.PointingHandCursor)
+        self.btn_seat_zones.clicked.connect(lambda: self.seat_zones_requested.emit())
+        layout.addWidget(self.btn_seat_zones)
 
     def _populate_video_sources(self):
         """填充预设演示视频与系统输入源。"""

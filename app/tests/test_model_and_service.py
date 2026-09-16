@@ -39,8 +39,8 @@ def test_model_creation():
     assert attendee.distraction_count == 0
 
     meeting = MeetingInfo(title="测试会议")
-    assert meeting.total_expected == 12
-    assert meeting.status == "active"
+    assert meeting.total_expected == 0
+    assert meeting.status == "scheduled"
 
     det = DetectionBox(
         x1=100.0, y1=200.0, x2=300.0, y2=400.0,

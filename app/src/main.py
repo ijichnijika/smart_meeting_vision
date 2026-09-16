@@ -37,7 +37,7 @@ def main():
     interrupt_timer.timeout.connect(lambda: None)
     interrupt_timer.start(500)
 
-    window = MainWindow(enable_yolo=True)
+    window = MainWindow(enable_yolo=True, auto_start=False)
     window.show()
 
     logger.info("主窗口已呈现，进入 Qt 应用程序主循环。")

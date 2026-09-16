@@ -10,11 +10,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 WEIGHTS_DIR = DATA_DIR / "weights"
 DEMO_VIDEOS_DIR = DATA_DIR / "demo_videos"
-SNAPSHOTS_DIR = DATA_DIR / "snapshots"
+SNAPSHOTS_DIR = BASE_DIR / "snapshots"
 REPORTS_DIR = DATA_DIR / "reports"
 DB_PATH = DATA_DIR / "meeting_vision.db"
 
 SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+(DATA_DIR / "snapshots").mkdir(parents=True, exist_ok=True)
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # 优先选用标准权重，缺失时按体积逐级降级回退至轻量模型

@@ -43,3 +43,15 @@ class ReportExportError(MeetingVisionError):
     """考勤报表写入或导出异常（如文件被占用、格式异常）"""
     def __init__(self, message: str):
         super().__init__(message, code="REPORT_EXPORT_ERROR")
+
+
+class DatabaseError(MeetingVisionError):
+    """数据持久化层操作异常（如连接失败、SQL 执行错误）"""
+    def __init__(self, message: str):
+        super().__init__(message, code="DATABASE_ERROR")
+
+
+class SeatZoneError(MeetingVisionError):
+    """工位区域操作异常（如非法坐标或绑定冲突）"""
+    def __init__(self, message: str):
+        super().__init__(message, code="SEAT_ZONE_ERROR")

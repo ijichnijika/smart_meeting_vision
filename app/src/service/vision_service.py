@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Tuple, Union
 import cv2
 import numpy as np
@@ -15,6 +16,7 @@ from PySide6.QtGui import QImage
 from app.config import SNAPSHOTS_DIR, TARGET_FPS
 from app.src.common.logger import get_logger
 from app.src.core import (
+    SeatZoneTracker,
     SnapshotManager,
     VideoCaptureStream,
     VideoRecorder,
@@ -23,7 +25,7 @@ from app.src.core import (
     render_detections,
     render_evidence_snapshot,
 )
-from app.src.model import AttendanceStats, DetectionBox, DistractionAlert
+from app.src.model import AttendanceStats, DetectionBox, DistractionAlert, SeatZone
 
 logger = get_logger("vision_service")
 
@@ -39,16 +41,19 @@ class VisionService(QThread):
     frame_processed = done_signal
     stats_updated = Signal(object)
     alert_triggered = Signal(object)
+    seat_zones_updated = Signal(list)
     source_status = Signal(bool, str)
     recording_status = Signal(bool, str)
 
-    def __init__(self, video_source: Union[str, int] = 0, enable_yolo: bool = True, parent=None):
+    def __init__(self, video_source: Union[str, int] = 0, enable_yolo: bool = True, expected_count: int = 12, alert_cooldown_seconds: float = 6.0, parent=None):
         super().__init__(parent)
         self.setStackSize(16 * 1024 * 1024)
         self.video_source = video_source
         self.enable_yolo = enable_yolo
         self.is_running = False
         self.is_paused = False
+        self.expected_count = expected_count
+        self.alert_cooldown_seconds = alert_cooldown_seconds
 
         self._capture = VideoCaptureStream(video_source=self.video_source)
         self._detector = VisionDetector(enable_yolo=self.enable_yolo)
@@ -63,6 +68,23 @@ class VisionService(QThread):
 
         self._infer_lock = threading.Lock()
         self._is_inferring = False
+        self._infer_pool = ThreadPoolExecutor(max_workers=1)
+
+        self._seat_tracker = SeatZoneTracker(debounce_frames=15, recovery_frames=1, absent_seconds=3.0)
+        self._seat_lock = threading.Lock()
+
+        self._pending_source: Optional[Union[str, int]] = None
+        self._source_lock = threading.Lock()
+
+    def set_seat_zones(self, zones: List[SeatZone]):
+        """设置当前视频流对应的工位列表。"""
+        with self._seat_lock:
+            self._seat_tracker.set_zones(zones)
+
+    def get_seat_zones(self) -> List[SeatZone]:
+        """获取当前跟踪器维护的工位列表及最新状态。"""
+        with self._seat_lock:
+            return self._seat_tracker.get_zones()
 
     @property
     def is_recording(self) -> bool:
@@ -95,6 +117,17 @@ class VisionService(QThread):
         fps_smooth = float(native_fps)
 
         while self.is_running:
+            with self._source_lock:
+                if self._pending_source is not None:
+                    pending = self._pending_source
+                    self._pending_source = None
+                    if self._capture.change_source(pending):
+                        self.source_status.emit(True, f"数据源: {pending}")
+                        native_fps = self._capture.get_fps()
+                        frame_duration = 1.0 / max(10.0, min(60.0, native_fps))
+                    else:
+                        self.source_status.emit(False, f"数据源无法打开: {pending}")
+
             if self.is_paused:
                 self.msleep(50)
                 continue
@@ -115,22 +148,18 @@ class VisionService(QThread):
                 if can_infer:
                     with self._infer_lock:
                         self._is_inferring = True
-                    threading.Thread(
-                        target=self._async_infer_worker,
-                        args=(frame.copy(),),
-                        daemon=True
-                    ).start()
+                    self._infer_pool.submit(self._async_infer_worker, frame.copy())
 
             # 获取当前最新的目标检测与行为状态快照
             with self._infer_lock:
                 cur_dets = list(self._last_detections)
                 cur_counts = dict(self._last_counts)
 
-            # 前台原地渲染最新标注
-            render_detections(frame, cur_dets, cur_counts)
-
+            # 仅在录制视频时在副本上绘制离线标注，避免污染前台 UI 矢量渲染
             if self.is_recording:
-                self._recorder.write(frame)
+                record_frame = frame.copy()
+                render_detections(record_frame, cur_dets, cur_counts)
+                self._recorder.write(record_frame)
 
             q_image = self.convert_cv_to_qimage(frame)
 
@@ -153,7 +182,7 @@ class VisionService(QThread):
         self._capture.release()
 
     def _async_infer_worker(self, frame: np.ndarray):
-        """后台独立工作线程：执行 YOLO + 自研 best.pt 行为感知与姿态复核。"""
+        """后台独立工作线程：执行行为感知与姿态复核。"""
         try:
             detections, counter = self._detector.detect(frame)
             counts_dict = dict(counter)
@@ -168,6 +197,30 @@ class VisionService(QThread):
 
             distraction_count = sum(1 for d in detections if d.is_distracted and d.class_name != "cell phone")
             self._update_stats_if_needed(person_count, distraction_count, counts_dict)
+
+            # 更新工位时序状态机与离席防抖推断
+            with self._seat_lock:
+                if self._seat_tracker.zones:
+                    updated_zones, leave_alerts, has_changed = self._seat_tracker.update(frame, detections)
+                    for l_alert in leave_alerts:
+                        if frame is not None and l_alert.snapshot_path is None:
+                            try:
+                                zone_match = next(
+                                    (z for z in updated_zones if f"#{z.seat_index}" == l_alert.track_id), None
+                                )
+                                if zone_match:
+                                    from app.src.core.drawer import render_seat_leave_snapshot
+                                    evidence_img = render_seat_leave_snapshot(
+                                        frame, zone_match, time.strftime("%Y-%m-%d %H:%M:%S")
+                                    )
+                                    snap_file = SNAPSHOTS_DIR / f"leave_seat_{zone_match.seat_index}_{int(time.time() * 1000)}.jpg"
+                                    cv2.imwrite(str(snap_file), evidence_img)
+                                    l_alert.snapshot_path = str(snap_file)
+                            except Exception as e:
+                                logger.error(f"保存离席证据快照失败: {e}", exc_info=True)
+                        self.alert_triggered.emit(l_alert)
+                    if has_changed:
+                        self.seat_zones_updated.emit(list(updated_zones))
 
             with self._infer_lock:
                 self._last_detections = detections
@@ -186,6 +239,15 @@ class VisionService(QThread):
         detections, counter = self._detector.detect(frame)
         counts_dict = dict(counter)
         render_detections(frame, detections, counts_dict)
+
+        with self._seat_lock:
+            if self._seat_tracker.zones:
+                updated_zones, leave_alerts, has_changed = self._seat_tracker.update(frame, detections)
+                for l_alert in leave_alerts:
+                    self.alert_triggered.emit(l_alert)
+                if has_changed:
+                    self.seat_zones_updated.emit(list(updated_zones))
+
         with self._infer_lock:
             self._last_detections = detections
             self._last_counts = counts_dict
@@ -194,7 +256,7 @@ class VisionService(QThread):
     def _trigger_alert_if_needed(self, track_id: int, label_text: str, det: Optional[DetectionBox] = None):
         """触发分心行为告警，单目标在 6 秒内去重。"""
         now = time.time()
-        if track_id not in self._alert_cooldowns or now - self._alert_cooldowns[track_id] > 6.0:
+        if track_id not in self._alert_cooldowns or now - self._alert_cooldowns[track_id] > self.alert_cooldown_seconds:
             self._alert_cooldowns[track_id] = now
             ts_readable = time.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -222,8 +284,7 @@ class VisionService(QThread):
         now = time.time()
         if now - self._last_stats_t > 0.8:
             self._last_stats_t = now
-            # TODO: 从实际应到参会人员名单动态计算总人数，避免硬编码 12
-            total = 12
+            total = self.expected_count
             cur_pres = min(total, max(1, present_count)) if present_count > 0 else 0
             cur_abs = max(0, total - cur_pres)
             rate = round(cur_pres / total * 100.0, 1) if total > 0 else 0.0
@@ -279,6 +340,7 @@ class VisionService(QThread):
         """停止线程并等待资源安全退出。"""
         self.is_running = False
         self.is_paused = False
+        self._infer_pool.shutdown(wait=False)
         if self.is_recording:
             self.stop_recording()
         self.quit()
@@ -288,4 +350,8 @@ class VisionService(QThread):
     def change_source(self, new_source: Union[str, int]):
         """切换视频流数据源。"""
         self.video_source = new_source
-        self._capture.change_source(new_source)
+        if self.isRunning():
+            with self._source_lock:
+                self._pending_source = new_source
+        else:
+            self._capture.change_source(new_source)

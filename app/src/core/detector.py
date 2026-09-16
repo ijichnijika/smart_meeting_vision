@@ -19,8 +19,9 @@ from app.config import (
     POSE_WEIGHTS,
 )
 from app.src.common.logger import get_logger
-from app.src.core.drawer import clamp_bbox
+from app.src.core.strategy import BBoxOverlapStrategy, PoseWristDistanceStrategy
 from app.src.model import BehaviorType, DetectionBox
+from app.src.utils.geometry import clamp_bbox
 
 logger = get_logger("vision_detector")
 
@@ -38,6 +39,8 @@ class VisionDetector:
         self._yolo_model = None
         self._behavior_model = None
         self._pose_model = None
+        self._pose_strategy = PoseWristDistanceStrategy()
+        self._fallback_strategy = BBoxOverlapStrategy()
         if self.enable_yolo:
             self._init_models()
 
@@ -158,46 +161,19 @@ class VisionDetector:
                         if px1 <= ph_cx <= px2 and py1 <= ph_cy <= py2:
                             matched_phones.append((ph_xy, ph_cx, ph_cy))
 
-                    behavior_code = best_behavior_code
-                    is_distracted = BehaviorType.is_distracted_code(behavior_code)
+                    # 委托策略执行设备交互研判
+                    strategy = self._pose_strategy if pose_keypoints is not None else self._fallback_strategy
+                    is_holding = strategy.is_holding_phone((px1, py1, px2, py2), matched_phones, pose_keypoints)
 
-                    # 3. 姿态辅助手-机交互判定 (FR-2.2 防误报：区分手持玩手机与手机在桌)
-                    if matched_phones:
-                        is_holding_phone = False
-                        if pose_keypoints is not None and hasattr(pose_keypoints, "xy"):
-                            kp_xy = pose_keypoints.xy.cpu().numpy()
-                            kp_conf = pose_keypoints.conf.cpu().numpy() if hasattr(pose_keypoints, "conf") and pose_keypoints.conf is not None else None
-
-                            # 查找落在当前人体框内的姿态关键点
-                            for p_idx in range(len(kp_xy)):
-                                # COCO 9: left_wrist, 10: right_wrist
-                                for wrist_idx in (9, 10):
-                                    wx, wy = kp_xy[p_idx][wrist_idx]
-                                    if px1 <= wx <= px2 and py1 <= wy <= py2:
-                                        conf_ok = True
-                                        if kp_conf is not None and len(kp_conf) > p_idx:
-                                            conf_ok = float(kp_conf[p_idx][wrist_idx]) > 0.2
-
-                                        if conf_ok:
-                                            for ph_xy, ph_cx, ph_cy in matched_phones:
-                                                # TODO: 手持手机距离判定后续可结合人体对角线尺寸进行归一化计算
-                                                dist = math.hypot(wx - ph_cx, wy - ph_cy)
-                                                phone_scale = max(ph_xy[2] - ph_xy[0], ph_xy[3] - ph_xy[1])
-                                                if dist <= max(80.0, phone_scale * 2.5):
-                                                    is_holding_phone = True
-                                                    break
-
-                        if is_holding_phone:
-                            behavior_code = "using_device"
-                            is_distracted = True
-                        elif not is_holding_phone and behavior_code == "using_device" and pose_keypoints is not None:
-                            # 手机静置桌面且双手远离时，降级为在席正常观察
-                            behavior_code = "look_forward"
-                            is_distracted = False
-                        elif not pose_keypoints:
-                            # 姿态不可用时回退为手机空间覆盖判定
-                            behavior_code = "using_device"
-                            is_distracted = True
+                    if is_holding:
+                        behavior_code = "using_device"
+                        is_distracted = True
+                    elif best_behavior_code == "using_device" and pose_keypoints is not None:
+                        behavior_code = "look_forward"
+                        is_distracted = False
+                    else:
+                        behavior_code = best_behavior_code
+                        is_distracted = BehaviorType.is_distracted_code(behavior_code)
 
                     if is_behavior_model:
                         behavior_code = raw_name
