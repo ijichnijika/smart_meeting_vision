@@ -16,6 +16,7 @@ import signal
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
+from app.config import ensure_data_dirs
 from app.src.common import get_logger
 from app.src.ui import MainWindow
 
@@ -24,6 +25,7 @@ logger = get_logger("app_main")
 
 def main():
     """主程序入口。"""
+    ensure_data_dirs()
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     logger.info("正在启动 Smart Meeting Vision 桌面客户端...")

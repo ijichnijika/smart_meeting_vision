@@ -8,6 +8,11 @@ import time
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 
+from app.config import (
+    SEAT_ABSENT_DEBOUNCE_FRAMES,
+    SEAT_ABSENT_SECONDS,
+    SEAT_RECOVERY_FRAMES,
+)
 from app.src.common.logger import get_logger
 from app.src.utils.geometry import clamp_bbox
 from app.src.model import Attendee, DetectionBox, DistractionAlert, SeatZone
@@ -22,7 +27,12 @@ class SeatZoneTracker:
     并在目标连续消失达到防抖阈值时触发离席判定与取证截图。
     """
 
-    def __init__(self, debounce_frames: int = 15, recovery_frames: int = 1, absent_seconds: float = 3.0):
+    def __init__(
+        self,
+        debounce_frames: int = SEAT_ABSENT_DEBOUNCE_FRAMES,
+        recovery_frames: int = SEAT_RECOVERY_FRAMES,
+        absent_seconds: float = SEAT_ABSENT_SECONDS,
+    ):
         self.debounce_frames = debounce_frames
         self.recovery_frames = recovery_frames
         self.absent_seconds = absent_seconds
@@ -137,7 +147,7 @@ class SeatZoneTracker:
                             event_type="leaving_seat",
                             event_label="工位离席告警",
                             timestamp=time.strftime("%H:%M:%S"),
-                            duration_seconds=3,
+                            duration_seconds=max(0, int(duration_away)),
                             snapshot_path=None,
                         )
                         alerts.append(alert)

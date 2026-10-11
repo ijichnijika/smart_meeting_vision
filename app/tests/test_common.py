@@ -37,7 +37,33 @@ def test_utils_functions():
     assert clamp(15, 0, 10) == 10
 
 
-def test_logger_creation():
-    """测试日志器能够正确创建"""
+def test_logger_creation(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.src.common.logger.LOGS_DIR", tmp_path)
     logger = get_logger("test_logger")
-    assert logger.name == "test_logger"
+    try:
+        assert logger.name == "test_logger"
+        assert get_logger("test_logger") is logger
+        assert len(logger.handlers) == 2
+        logger.info("测试日志写入")
+        assert "测试日志写入" in (tmp_path / "meeting_vision.log").read_text(encoding="utf-8")
+    finally:
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+            handler.close()
+
+
+def test_logger_file_failure_keeps_console_logging(tmp_path, monkeypatch, capsys):
+    log_dir = tmp_path / "blocked"
+    log_dir.write_text("not a directory", encoding="utf-8")
+    monkeypatch.setattr("app.src.common.logger.LOGS_DIR", log_dir)
+    logger = get_logger("test_logger_file_failure")
+    try:
+        assert len(logger.handlers) == 1
+        logger.info("控制台仍可使用")
+        output = capsys.readouterr().out
+        assert "无法写入日志目录" in output
+        assert "控制台仍可使用" in output
+    finally:
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+            handler.close()

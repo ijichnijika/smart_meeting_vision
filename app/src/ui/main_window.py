@@ -140,8 +140,12 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(content_frame, stretch=1)
 
     def _setup_vision_service(self):
+        initial_source = self.control_bar.combo_source.currentData()
+        if initial_source is None or initial_source == "BROWSE_FILE":
+            initial_source = str(DEFAULT_DEMO_VIDEO) if DEFAULT_DEMO_VIDEO.exists() else 0
+
         self.vision_service = VisionService(
-            video_source=str(DEFAULT_DEMO_VIDEO),
+            video_source=initial_source,
             enable_yolo=self.enable_yolo,
             expected_count=self.meeting.expected_count if self.meeting else 12,
             parent=self,
@@ -157,11 +161,15 @@ class MainWindow(QMainWindow):
         self.store.set_stats(stats)
 
     def _subscribe_store(self):
-        self.store.meeting_changed.connect(self.attendee_panel.update_meeting_info)
+        self.store.meeting_changed.connect(self._on_meeting_changed)
         self.store.attendees_changed.connect(self.attendee_panel.set_attendees)
         self.store.seat_zones_changed.connect(self.video_widget.set_seat_zones)
         self.store.seat_zones_changed.connect(self.vision_service.set_seat_zones)
         self.store.stats_changed.connect(self.stats_panel.update_stats)
+
+    def _on_meeting_changed(self, meeting: MeetingInfo):
+        self.attendee_panel.update_meeting_info(meeting)
+        self.vision_service.expected_count = meeting.expected_count
 
     def _bind_events(self):
         self.control_bar.play_toggled.connect(self._on_play_toggled)
@@ -209,7 +217,10 @@ class MainWindow(QMainWindow):
         self.stats_panel.add_alert(alert)
         if alert.event_type == "leaving_seat":
             matched = self.controller.handle_leaving_seat_alert(alert)
-            msg = f"【离席告警】{alert.attendee_name} 已连续 3 秒不在工位" if matched else f"【离席告警】{alert.attendee_name}（未绑定人员）连续 3 秒无人"
+            if matched:
+                msg = f"【离席告警】{alert.attendee_name} 已连续 {alert.duration_seconds} 秒不在工位"
+            else:
+                msg = f"【离席告警】{alert.attendee_name}（未绑定人员）连续 {alert.duration_seconds} 秒无人"
             self.statusBar().showMessage(msg, 5000)
         elif alert.track_id:
             self.controller.handle_distraction_alert(alert)
@@ -267,7 +278,6 @@ class MainWindow(QMainWindow):
 
     def _on_meeting_switched(self, new_meeting: MeetingInfo):
         self.controller.switch_meeting(new_meeting)
-        self.vision_service.expected_count = new_meeting.expected_count
         self.statusBar().showMessage(f"当前会议已切换为: {new_meeting.title}", 4000)
 
     def _on_import_csv(self):

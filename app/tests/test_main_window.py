@@ -1,6 +1,22 @@
 import os
+from dataclasses import replace
+from functools import partial
+
+import pytest
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
+
+@pytest.fixture(autouse=True)
+def isolate_window_data(tmp_path, monkeypatch):
+    from app.src.controller import MeetingController
+    from app.src.service.vision_service import VisionService
+
+    monkeypatch.setattr(
+        "app.src.ui.main_window.MeetingController",
+        partial(MeetingController, db_path=tmp_path / "meeting.db"),
+    )
+    monkeypatch.setattr(VisionService, "read_raw_frame", lambda self: (False, None))
 
 
 def test_main_window_initialization():
@@ -53,6 +69,7 @@ def test_main_window_seat_zone_and_leaving_alert(monkeypatch):
         event_type="leaving_seat",
         event_label="工位离席告警",
         timestamp="14:05:00",
+        duration_seconds=5,
     )
     window._on_alert_triggered(alert)
 
@@ -60,6 +77,32 @@ def test_main_window_seat_zone_and_leaving_alert(monkeypatch):
     emp1 = next(a for a in window.attendees if a.name == "夏一帆")
     assert emp1.status == "absent"
     assert window._current_stats.current_absent > 0
+    assert "连续 5 秒" in window.statusBar().currentMessage()
 
     window.cleanup()
     window.close()
+
+
+def test_expected_count_tracks_roster_import_meeting_edit_and_switch(tmp_path):
+    from app.src.ui import MainWindow
+
+    window = MainWindow(enable_yolo=False, auto_start=False)
+    try:
+        initial_count = window.meeting.expected_count
+        csv_file = tmp_path / "roster.csv"
+        csv_file.write_text("工号,姓名,部门\nNEW001,测试员,研发\n", encoding="utf-8")
+        window.controller.import_roster_csv(csv_file)
+        assert window.vision_service.expected_count == initial_count + 1
+
+        window.store.set_meeting(replace(window.meeting, expected_count=20))
+        assert window.vision_service.expected_count == 20
+        window.vision_service._update_stats_if_needed(10)
+        assert window.store.stats.attendance_rate == 50.0
+
+        new_meeting = window.controller.meeting_dao.save(
+            replace(window.meeting, id=0, title="空会议", expected_count=0)
+        )
+        window._on_meeting_switched(new_meeting)
+        assert window.vision_service.expected_count == 0
+    finally:
+        window.close()

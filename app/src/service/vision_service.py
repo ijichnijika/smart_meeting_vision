@@ -13,7 +13,18 @@ import numpy as np
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QImage
 
-from app.config import SNAPSHOTS_DIR, TARGET_FPS
+from app.config import (
+    ALERT_COOLDOWN_SECONDS,
+    DISTRACTION_CONFIRM_FRAMES,
+    ENABLE_AUTO_SNAPSHOT,
+    MIN_SNAPSHOT_INTERVAL,
+    SEAT_ABSENT_DEBOUNCE_FRAMES,
+    SEAT_ABSENT_SECONDS,
+    SEAT_LEAVE_COOLDOWN_SECONDS,
+    SEAT_RECOVERY_FRAMES,
+    SNAPSHOTS_DIR,
+    TARGET_FPS,
+)
 from app.src.common.logger import get_logger
 from app.src.core import (
     SeatZoneTracker,
@@ -24,6 +35,7 @@ from app.src.core import (
     draw_detections,
     render_detections,
     render_evidence_snapshot,
+    render_seat_leave_snapshot,
 )
 from app.src.model import AttendanceStats, DetectionBox, DistractionAlert, SeatZone
 
@@ -45,7 +57,18 @@ class VisionService(QThread):
     source_status = Signal(bool, str)
     recording_status = Signal(bool, str)
 
-    def __init__(self, video_source: Union[str, int] = 0, enable_yolo: bool = True, expected_count: int = 12, alert_cooldown_seconds: float = 6.0, parent=None):
+    def __init__(
+        self,
+        video_source: Union[str, int] = 0,
+        enable_yolo: bool = True,
+        expected_count: int = 12,
+        alert_cooldown_seconds: float = ALERT_COOLDOWN_SECONDS,
+        seat_leave_cooldown_seconds: float = SEAT_LEAVE_COOLDOWN_SECONDS,
+        min_snapshot_interval: float = MIN_SNAPSHOT_INTERVAL,
+        distraction_confirm_frames: int = DISTRACTION_CONFIRM_FRAMES,
+        enable_auto_snapshot: bool = ENABLE_AUTO_SNAPSHOT,
+        parent=None,
+    ):
         super().__init__(parent)
         self.setStackSize(16 * 1024 * 1024)
         self.video_source = video_source
@@ -54,6 +77,10 @@ class VisionService(QThread):
         self.is_paused = False
         self.expected_count = expected_count
         self.alert_cooldown_seconds = alert_cooldown_seconds
+        self.seat_leave_cooldown_seconds = seat_leave_cooldown_seconds
+        self.min_snapshot_interval = min_snapshot_interval
+        self.distraction_confirm_frames = distraction_confirm_frames
+        self.enable_auto_snapshot = enable_auto_snapshot
 
         self._capture = VideoCaptureStream(video_source=self.video_source)
         self._detector = VisionDetector(enable_yolo=self.enable_yolo)
@@ -64,13 +91,20 @@ class VisionService(QThread):
         self._last_counts: dict = {}
         self._last_raw_frame: Optional[np.ndarray] = None
         self._alert_cooldowns = {}
+        self._seat_leave_cooldowns = {}
+        self._last_snapshot_time = 0.0
+        self._distraction_streak = {}
         self._last_stats_t = 0.0
 
         self._infer_lock = threading.Lock()
         self._is_inferring = False
         self._infer_pool = ThreadPoolExecutor(max_workers=1)
 
-        self._seat_tracker = SeatZoneTracker(debounce_frames=15, recovery_frames=1, absent_seconds=3.0)
+        self._seat_tracker = SeatZoneTracker(
+            debounce_frames=SEAT_ABSENT_DEBOUNCE_FRAMES,
+            recovery_frames=SEAT_RECOVERY_FRAMES,
+            absent_seconds=SEAT_ABSENT_SECONDS,
+        )
         self._seat_lock = threading.Lock()
 
         self._pending_source: Optional[Union[str, int]] = None
@@ -187,9 +221,20 @@ class VisionService(QThread):
             detections, counter = self._detector.detect(frame)
             counts_dict = dict(counter)
 
+            # 分心连续帧确认，避免单帧误检瞬态触发截图
+            active_distracted_tracks = set()
             for det in detections:
                 if det.is_distracted and det.class_name != "cell phone":
-                    self._trigger_alert_if_needed(det.track_id or 1, det.behavior_label or "分心告警", det)
+                    tid = det.track_id or 1
+                    active_distracted_tracks.add(tid)
+                    streak = self._distraction_streak.get(tid, 0) + 1
+                    self._distraction_streak[tid] = streak
+                    if streak >= self.distraction_confirm_frames:
+                        self._trigger_alert_if_needed(tid, det.behavior_label or "分心告警", det, frame=frame)
+
+            for tid in list(self._distraction_streak.keys()):
+                if tid not in active_distracted_tracks:
+                    self._distraction_streak.pop(tid, None)
 
             person_count = counts_dict.get("person", 0)
             if person_count == 0:
@@ -208,14 +253,21 @@ class VisionService(QThread):
                                 zone_match = next(
                                     (z for z in updated_zones if f"#{z.seat_index}" == l_alert.track_id), None
                                 )
-                                if zone_match:
-                                    from app.src.core.drawer import render_seat_leave_snapshot
-                                    evidence_img = render_seat_leave_snapshot(
-                                        frame, zone_match, time.strftime("%Y-%m-%d %H:%M:%S")
-                                    )
-                                    snap_file = SNAPSHOTS_DIR / f"leave_seat_{zone_match.seat_index}_{int(time.time() * 1000)}.jpg"
-                                    cv2.imwrite(str(snap_file), evidence_img)
-                                    l_alert.snapshot_path = str(snap_file)
+                                if zone_match and self.enable_auto_snapshot:
+                                    now = time.time()
+                                    last_leave_snap = self._seat_leave_cooldowns.get(zone_match.seat_index, 0.0)
+                                    if (
+                                        now - last_leave_snap >= self.seat_leave_cooldown_seconds
+                                        and now - self._last_snapshot_time >= self.min_snapshot_interval
+                                    ):
+                                        evidence_img = render_seat_leave_snapshot(
+                                            frame, zone_match, time.strftime("%Y-%m-%d %H:%M:%S")
+                                        )
+                                        snap_file = SNAPSHOTS_DIR / f"leave_seat_{zone_match.seat_index}_{int(now * 1000)}.jpg"
+                                        l_alert.snapshot_path = SnapshotManager.save_snapshot(evidence_img, str(snap_file))
+                                        if l_alert.snapshot_path:
+                                            self._seat_leave_cooldowns[zone_match.seat_index] = now
+                                            self._last_snapshot_time = now
                             except Exception as e:
                                 logger.error(f"保存离席证据快照失败: {e}", exc_info=True)
                         self.alert_triggered.emit(l_alert)
@@ -253,19 +305,28 @@ class VisionService(QThread):
             self._last_counts = counts_dict
         return detections, counts_dict
 
-    def _trigger_alert_if_needed(self, track_id: int, label_text: str, det: Optional[DetectionBox] = None):
-        """触发分心行为告警，单目标在 6 秒内去重。"""
+    def _trigger_alert_if_needed(
+        self,
+        track_id: int,
+        label_text: str,
+        det: Optional[DetectionBox] = None,
+        frame: Optional[np.ndarray] = None,
+    ):
+        """触发分心行为告警，单目标在冷却期内去重并控制全局截图频率。"""
         now = time.time()
         if track_id not in self._alert_cooldowns or now - self._alert_cooldowns[track_id] > self.alert_cooldown_seconds:
             self._alert_cooldowns[track_id] = now
             ts_readable = time.strftime("%Y-%m-%d %H:%M:%S")
 
             snapshot_path = None
-            if self._last_raw_frame is not None and det is not None:
-                evidence_img = render_evidence_snapshot(self._last_raw_frame, det, ts_readable)
-                snap_file = SNAPSHOTS_DIR / f"alert_{track_id}_{int(now * 1000)}.jpg"
-                cv2.imwrite(str(snap_file), evidence_img)
-                snapshot_path = str(snap_file)
+            evidence_frame = frame if frame is not None else self._last_raw_frame
+            if self.enable_auto_snapshot and evidence_frame is not None and det is not None:
+                if now - self._last_snapshot_time >= self.min_snapshot_interval:
+                    evidence_img = render_evidence_snapshot(evidence_frame, det, ts_readable)
+                    snap_file = SNAPSHOTS_DIR / f"alert_{track_id}_{int(now * 1000)}.jpg"
+                    snapshot_path = SnapshotManager.save_snapshot(evidence_img, str(snap_file))
+                    if snapshot_path:
+                        self._last_snapshot_time = now
 
             alert = DistractionAlert(
                 id=f"ALT-{int(now * 1000)}",

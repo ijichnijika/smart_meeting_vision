@@ -6,7 +6,8 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
+
+from app.config import LOGS_DIR
 
 
 def get_logger(name: str = "meeting_vision") -> logging.Logger:
@@ -26,17 +27,16 @@ def get_logger(name: str = "meeting_vision") -> logging.Logger:
         logger.addHandler(console_handler)
 
         try:
-            log_dir = Path(__file__).resolve().parent.parent.parent.parent / "data" / "logs"
-            log_dir.mkdir(parents=True, exist_ok=True)
+            LOGS_DIR.mkdir(parents=True, exist_ok=True)
             file_handler = RotatingFileHandler(
-                log_dir / "meeting_vision.log",
+                LOGS_DIR / "meeting_vision.log",
                 maxBytes=5 * 1024 * 1024,
                 backupCount=3,
                 encoding="utf-8",
             )
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
-        except Exception:
-            pass
+        except OSError as exc:
+            logger.warning("无法写入日志目录 %s，仅使用控制台输出: %s", LOGS_DIR, exc)
 
     return logger

@@ -115,6 +115,7 @@ class CsvAttendeeImporter:
                     )
                     added_count += 1
 
+            if added_count:
                 cursor.execute(
                     """
                     UPDATE meetings

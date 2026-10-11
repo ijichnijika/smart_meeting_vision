@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 from app.config import DB_PATH
-from app.resource.db import get_connection, init_database
 from app.src.dao.attendee_dao import AttendeeDao
 from app.src.dao.meeting_dao import MeetingDao
 from app.src.dao.seat_zone_dao import SeatZoneDao

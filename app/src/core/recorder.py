@@ -91,7 +91,13 @@ class SnapshotManager:
             save_path = str(SNAPSHOTS_DIR / f"manual_snap_{ts}.jpg")
 
         out_path = Path(save_path)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(out_path), frame)
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            if not cv2.imwrite(str(out_path), frame):
+                logger.error(f"保存快照失败: {out_path}")
+                return None
+        except (OSError, cv2.error) as e:
+            logger.error(f"保存快照失败 [{out_path}]: {e}")
+            return None
         logger.info(f"画面抓拍快照已保存: {out_path}")
         return str(out_path)

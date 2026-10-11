@@ -116,7 +116,7 @@ def test_meeting_edit_dialog(tmp_path: Path):
     init_database(db_file)
     meeting = get_active_meeting(db_file)
 
-    dlg = MeetingEditDialog(meeting)
+    dlg = MeetingEditDialog(meeting, db_path=db_file)
     dlg.input_title.setText("智能感知算法答辩评审会")
     dlg.input_room.setText("第二学术报告厅")
     dlg._on_save()

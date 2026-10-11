@@ -341,10 +341,10 @@ def test_attendance_stats_calculate():
     assert stats.distraction_total == 3
 
 
-def test_seat_tracker_three_second_absence():
-    """测试持续 3 秒不在工位触发离席防抖"""
-    import time
-    tracker = SeatZoneTracker(debounce_frames=100, recovery_frames=1, absent_seconds=0.1)
+def test_seat_tracker_reports_actual_absence_duration(monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr("app.src.core.seat_tracker.time.time", lambda: now[0])
+    tracker = SeatZoneTracker(debounce_frames=100, recovery_frames=1, absent_seconds=4.0)
     zone = SeatZone(
         id=1,
         meeting_id=1,
@@ -359,15 +359,18 @@ def test_seat_tracker_three_second_absence():
     tracker.set_zones([zone])
     frame = np.zeros((300, 300, 3), dtype=np.uint8)
 
-    # 刚离开，不到 0.1 秒，不告警
     zones, alerts, _ = tracker.update(frame, [])
     assert len(alerts) == 0
 
-    # 睡眠满 0.12 秒（满足 absent_seconds 设定）
-    time.sleep(0.12)
+    now[0] += 3.9
+    zones, alerts, _ = tracker.update(frame, [])
+    assert len(alerts) == 0
+
+    now[0] += 1.3
     zones, alerts, changed = tracker.update(frame, [])
     assert len(alerts) == 1
     assert alerts[0].event_type == "leaving_seat"
+    assert alerts[0].duration_seconds == 5
     assert zones[0].current_status == "absent"
     assert changed is True
 

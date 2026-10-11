@@ -106,7 +106,9 @@ class ControlBar(QFrame):
             if path.exists() and path != DEFAULT_DEMO_VIDEO:
                 self.combo_source.addItem(label, str(path))
 
-        self.combo_source.addItem("本地摄像头 (设备 0)", 0)
+        self.combo_source.addItem("内置/主摄像头 (设备 0)", 0)
+        self.combo_source.addItem("外接 USB 摄像头 (设备 1)", 1)
+        self.combo_source.addItem("外接 USB 摄像头 (设备 2)", 2)
         self.combo_source.addItem("打开本地视频文件...", "BROWSE_FILE")
 
     def _toggle_play(self):
